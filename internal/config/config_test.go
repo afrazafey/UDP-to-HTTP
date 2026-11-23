@@ -117,8 +117,13 @@ func TestPhase2Policy(t *testing.T) {
 		t.Fatal("reserved multicast accepted")
 	}
 	c.Streaming.BlockedMulticastNetworks = []string{}
+	if err := c.Validate(); err == nil {
+		t.Fatal("reserved local-control multicast was enabled by removing optional exclusions")
+	}
+	c.Streaming.AllowedMulticastGroups = []string{"239.1.1.61"}
+	c.Channels[0].SourceAddress = "239.1.1.61"
 	if err := c.Validate(); err != nil {
-		t.Fatal("explicit reserved policy override", err)
+		t.Fatal("ordinary authorized multicast rejected", err)
 	}
 	c.Streaming.MaxBufferedBytes = 1
 	if err := c.Validate(); err == nil {

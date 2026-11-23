@@ -13,6 +13,13 @@ import {
 import { request, type Configuration, type NetworkInterface } from "./api";
 
 export interface Channel {
+  logo_url?: string;
+  tvg_id?: string;
+  tvg_name?: string;
+  group?: string;
+  sort_order?: number;
+  description?: string;
+  preferred_playback_port?: "primary" | "secondary";
   id: string;
   name: string;
   source_type: "multicast" | "unicast";
@@ -27,6 +34,11 @@ export interface Channel {
   udp_receive_buffer: number;
 }
 export interface StreamSnapshot {
+  health?: string;
+  last_datagram_at?: string | null;
+  last_recovery_at?: string | null;
+  socket_bound?: boolean;
+  membership_joined?: boolean;
   channel: Channel;
   state: string;
   clients: number;
@@ -35,6 +47,11 @@ export interface StreamSnapshot {
   input_bitrate: number;
   output_bitrate: number;
   counters: {
+    datagrams?: number;
+    sync_errors?: number;
+    receiver_restarts?: number;
+    recoveries?: number;
+    recovery_failures?: number;
     input_bytes: number;
     output_bytes: number;
     packets: number;

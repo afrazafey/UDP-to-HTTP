@@ -1,169 +1,222 @@
-# UDPHTTP Proxy for Linux
+# UDPHTTP Proxy
 
-Phase 3 development release, **0.3.0-dev**. A standalone Go/SQLite UDP-to-HTTP IPTV proxy with an embedded React/TypeScript operations dashboard. This extends the existing receiver and playback engine; it does not replace it.
+UDPHTTP Proxy converts authorized IPv4 multicast or unicast **MPEG-TS over UDP** into HTTP streams for VLC, Android TV and other IPTV players. Multiple viewers share one receiver per configured source identity. An embedded React/TypeScript dashboard manages channels, health, imports, playlists and diagnostics; SQLite persists configuration and bounded operational events.
 
-**Linux runtime acceptance is pending. This is not a production-readiness claim.** Windows Application Control blocks some local tests; exact results are in [PHASE3_REPORT.md](PHASE3_REPORT.md). No Phase 4 work, transcoding, firewall changes, PHP, MySQL or Redis are included.
+**Phase 4 / 0.4.0 development candidate.** Read [the exact validation report](docs/PHASE4_REPORT.md) before deployment. The user verified real TRACE URBAN multicast playback on Ubuntu before these changes. Phase 4 cross-builds, local synthetic tests and CI definitions do not certify every supported OS or production capacity. This work does not publish a stable release.
 
-## Build and development
+## 1. Overview
 
-Requirements: Go 1.26+, Node 24/npm. Make is optional; Debian packaging requires a Linux dpkg-deb environment. Normal binaries use CGO-free SQLite; race tests need GCC/a supported race toolchain.
+- Multicast/unicast UDP reception with explicit interfaces, source allowlists and client CIDRs.
+- Bounded shared fan-out, slow-client isolation, automatic socket/interface recovery with jittered retry.
+- Separate UDP datagram and MPEG-TS packet/continuity/synchronization observations.
+- Channel metadata, transactional M3U import, sorted/filterable playlist export and opt-in restricted remote playlists.
+- Local management, CSRF-protected writes, retained health/history/logs and safe network diagnostics.
+- Linux systemd/Debian packaging and native Windows SCM implementation with separate acceptance gates.
 
-```sh
-cd frontend
-npm ci
-npm run build
-cd ..
-go run ./cmd/udphttp-proxy config validate --config configs/config.example.yaml
-go run ./cmd/udphttp-proxy interfaces
-go run ./cmd/udphttp-proxy serve --config configs/config.example.yaml
+RTP, upstream HTTP/HLS pulling, transcoding, FEC and browser codec validation are not implemented. Supported URL import patterns describe UDP sources, not generic HTTP video downloads.
+
+## 2. Architecture
+
+```mermaid
+flowchart LR
+    A[UDP Multicast Source] --> B[UDPHTTP Proxy]
+    U[UDP Unicast Sender] --> B
+    B --> C[HTTP MPEG-TS Playback]
+    C --> D[VLC]
+    C --> E[Android TV]
+    C --> F[IPTV Players]
 ```
 
-Management: **http://127.0.0.1:8080**. Default playback: **127.0.0.1:7781/7782**. Empty default source/client allowlists deny playback and create no channel receivers. `version`, `interfaces`, and `config validate` remain supported. An explicit missing config is an error; no path uses safe development defaults. Stop with Ctrl+C/SIGTERM.
+Management and playback use separate listeners. Receivers are shared across viewers and both playback ports; channel writes do not create duplicate source workers. See [architecture and concurrency invariants](docs/ARCHITECTURE.md).
 
-The frontend is embedded; the installed binary needs no Node/CDN. Without built assets, `/` returns an explanatory 503 while APIs remain available. For Vite development, run the daemon separately, then `cd frontend && npm run dev` and open `http://127.0.0.1:5173`. The loopback-only development API proxy targets management port 8080 and removes development Origin/Referer/fetch-site headers. Production is same-origin and preserves these security headers through Nginx.
+## 3. Requirements and platform status
 
-From a downloaded Linux bundle: `./udphttp-proxy serve --config configs/config.example.yaml`. Use the source ZIP to build packages. All local bundles are development builds.
+| Area | Requirement / status |
+| --- | --- |
+| Linux target | Ubuntu 22.04/24.04, Debian 12+, AMD64/ARM64; Phase 4 native acceptance tracked separately |
+| Windows target | Windows 10/11 x64, Server 2019+; native service implemented, SCM acceptance required |
+| Source builds | Go 1.26+ (CI 1.27), Node 24/npm 11+, Git, Python 3.10+ |
+| Race tests | Supported GCC/CGO toolchain; production SQLite builds do not need CGO |
+| Networking | Assigned IPv4 on selected adapters; multicast-capable input for multicast, routing/IGMP/firewall configured independently |
+| Hardware | No measured minimum or capacity guarantee. Start planning around 2 CPU cores/2 GiB and adequate NIC throughput, then measure the actual workload. This is an estimate, not a tested sizing promise. |
 
-## Dashboard workflows
+Installed binaries embed the frontend and do not require Node or a CDN. Hardware multicast/decoder acceptance must be repeated on the deployment network. Windows ARM64 is not released. Native ARM64 runtime validation is distinct from a Linux ARM64 cross-build.
 
-The application uses hash routes, for example `#/streams/news`; API/playback paths never pass through a frontend fallback.
+## 4. Quick start — Linux
 
-- **Overview:** configured/running/stopped/unhealthy channels, waiting receivers, clients, payload throughput, uptime/version, measured chart history, real recent activity and health.
-- **Streams:** search, status/type filters, sorting, 20-row pages and mobile card styling. Add/edit persistent channels; Start/Stop/Restart, confirmed deletion, URL copying, details and filtered logs all use real APIs. Channel edits replace the receiver and disconnect its viewers; failed validation/persistence preserves the prior running channel.
-- **Stream details:** source/interface/URL, start time, uptime, clients, bytes/packets, discontinuities/CC errors, errors and measured per-channel chart history. Native MPEG-TS capability is inspected, but codec/browser playback is unverified; Copy VLC URL supplies a real external-player option without transcoding or automatic playback.
-- **Network Interfaces:** actual names/IPv4/MAC (if available), index, MTU, operational and multicast flags. Configure default multicast selection and playback binds/ports with preview and save confirmation. The host interfaces/routes/firewall are never modified.
-- **Connected Clients:** actual peer IP, stream, start/duration, delivered payload, lifetime-average output rate, state and confirmed disconnection. A closing writer may wait for its deadline; other viewers continue.
-- **Monitoring:** actual UDP/HTTP rates, active receivers/clients, Go heap/runtime allocation, goroutines, Linux process CPU/RSS, and transport observations. Unsupported metrics say unavailable. Pause/resume and manual refresh affect display polling, not reception; the service sampler continues. Refresh interval (3..60s) is persisted by the backend.
-- **Activity Logs:** retained structured operational events with severity, stream, search and time filters, pagination, copy and authorized sanitized NDJSON export (maximum 1,000 entries). This is not an unrestricted journald reader.
-- **Settings:** real persisted General, Streaming, HTTP, Security and Logging sections. Read-only policies are explicitly labeled. Theme supports light/dark/system; application name, refresh interval and new-channel preferences are daemon-backed. Sidebar collapse is a browser presentation preference.
-- **System Information:** actual version/runtime/platform/PID/uptime/goroutines, configuration path, DB health, listener status, interfaces/resources and measured dropped-event count.
-
-Dialogs trap focus, support Escape/focus restoration and use explicit labels/descriptions. Navigation supports keyboard/mobile use. Loading, empty, API error, stale and paused states are distinct. Notifications appear only after backend or clipboard confirmation. No fabricated measurements/history are included.
-
-## Safe settings and network configuration
-
-YAML/environment configuration bootstraps the daemon. Until the first settings save (revision 0), changes to bootstrap YAML/environment are honored. After a confirmed browser save, the persisted server-settings subset overrides those bootstrap fields on later starts. Management bind/port, database path and initial channel seeds stay outside the writable subset. Storage-path overrides and config selection still choose the bootstrap database/file. If you require YAML/environment authority again, use the recovery override below rather than deleting data.
-
-1. Edit network/server settings. Existing stream configurations remain explicit and separate from a default interface selection.
-2. Validate/preview. The backend checks typed bounds, actual interfaces/capabilities, duplicate listener ports/binds, existing channel compatibility and available new ports where practical. Owned ports are rechecked at restart, since the running daemon currently occupies them.
-3. Confirm save with the current revision. SQLite atomically stores the new desired revision; stale edits/rollbacks receive 409. A failed save keeps the draft visible for correction. Refresh the revision after a transport-level uncertainty.
-4. Dashboard/general preferences and logging controls apply live. Playback/network/streaming/timeouts are staged; a restart-required banner compares desired and active server settings.
-5. Restart through the host service manager when ready: `sudo systemctl restart udphttp-proxy`. There is no generic process-control API. Start/Stop buttons control individual receivers only.
-6. Startup revalidates saved data and actual playback binds. A failed staged bind or channel-count reduction restores the last accepted startup snapshot. If playback still cannot bind, local management stays available with playback disabled and visible failure details.
-
-Management binding is immutable through this interface, so a playback address change does not move the current management endpoint. Port probing is point-in-time validation, not a reservation. The accepted revision is a successful **startup** snapshot: rollback can also revert live general/logging changes made since that startup. Discard Pending restores that snapshot with confirmation. The latest rollback reason is visible until a subsequent save/discard clears it.
-
-Recovery without deleting SQLite:
+Download an approved candidate's actual files and `SHA256SUMS-phase4`, verify them, then:
 
 ```sh
-# For a packaged installation, use an administrative account:
-sudo systemctl stop udphttp-proxy
-sudo -u udphttp-proxy env UDPHTTP_IGNORE_SAVED_SETTINGS=1 /usr/bin/udphttp-proxy serve --config /etc/udphttp-proxy/config.yaml
-# After correcting/discarding settings in the UI, press Ctrl+C, then:
-sudo systemctl start udphttp-proxy
+sha256sum --check --ignore-missing SHA256SUMS-phase4
+sudo apt install './udphttp-proxy_0.4.0~dev_amd64.deb'
+sudo systemctl enable --now udphttp-proxy
+sudo systemctl status udphttp-proxy --no-pager
+curl --fail http://127.0.0.1:8080/health
 ```
 
-The override uses bootstrap YAML/environment for that process and retains existing channels/events/settings. Use the local UI to correct or discard the bad saved proposal, stop the recovery process, then start the service normally. Keep the database/storage path consistent and back up state before upgrades. No YAML file is rewritten by the dashboard.
+Open `http://127.0.0.1:8080` on the server or use an SSH tunnel. Configure UDP/HTTP interfaces and explicit source/client allowlists, add the first channel, then test its copied playback URL in VLC. Defaults intentionally permit no playback sources/clients. See [complete Linux installation](docs/INSTALL_LINUX.md).
 
-## Configuration and persistent data
+## 5. Ubuntu 22.04/24.04 installation
 
-Examples: [safe development defaults](configs/config.example.yaml), [isolated generator demo](configs/phase2-local.yaml), [Linux defaults](deploy/config.yaml), and [.env.example](.env.example). The application reads process environment, not .env files automatically. `UDPHTTP_CONFIG` selects YAML (unless --config wins), `UDPHTTP_STORAGE_PATH` selects the DB, and `UDPHTTP_LOG_LEVEL` is a bootstrap log override. Strict YAML rejects unknown/duplicate fields, multiple documents, files over 1 MiB and invalid policies/bounds.
-
-Schema v3 adds `server_settings` (revision, desired, accepted, rollback reason) and `operational_events` without dropping v1 settings or v2 channels. Initial `channels` YAML imports once; API edits/deletions remain SQLite-authoritative and deleted seeds never reappear. Earlier binaries reject schema v3; rollback requires a matching state backup, not a destructive downgrade.
-
-Writable settings include app name/theme/refresh/new-channel defaults; stream enablement/buffers/caps/timeouts; playback binds/ports and management HTTP timeouts; source/client allowlists and multicast exclusions; log level/event count/age retention. Management access, trust of proxies, session/token features, database/config paths, systemd startup and fixed recovery policy are read-only. Remote administration, trusted forwarding, signed playback tokens, browser journal access, hot reload and file logging are unavailable.
-
-Channel fields: ID/name, source_type, source_address, source_port, interface, enabled, idle_timeout_seconds, max_clients, client_buffer_bytes, udp_receive_buffer and startup (`on_demand`/`always`). For unicast, source_address is the exact expected **sender** and source_port is the selected local interface's UDP destination port. Source hostnames/arbitrary URLs are prohibited. Loopback input requires both explicit permission and exact allowlisting.
-
-Defaults: 100 clients, 128 channels, 256 KiB client backlog, 8 MiB per-stream queued bytes, 64 MiB global queued bytes, 4 MiB requested UDP socket buffer, 10s startup/inactivity/write deadlines. Kernel buffers can be clamped by the OS; no sysctls/root tuning is performed. Multicast 224.0.0.0/24 is blocked by default; overrides remain explicit. Duplicate source aliases/unicast binds are rejected; viewers across all playback listeners share one receiver.
-
-## Playback and transport
-
-```text
-GET http://PLAYBACK_HOST:7781/live/CHANNEL_ID.ts
-GET http://PLAYBACK_HOST:7781/udp/239.1.1.1:1234
-```
-
-The group route selects an enabled preconfigured multicast source and returns 409 if multiple interfaces make it ambiguous. Use a channel ID for disambiguation. No exact Windows UDP-to-HTTP Proxy 3.0 compatibility is claimed.
-
-MPEG-TS forwarding uses 188-byte framing across datagrams, three-sync acquisition/recovery, bounded immutable fan-out and immediate HTTP flushes/video/mp2t. Invalid structure/garbage is discarded and counted; TEI-marked packets are counted but preserved. No timestamps/codecs are rewritten. CC errors/discontinuities are observations, not exact network packet loss. RTP, transcoding, FEC, PSI CRC/PES/codec validation and real browser/codec acceptance are outside this build.
-
-States: disabled/stopped/starting/waiting/running/retrying/policy error. Running requires recent valid TS, not a UDP handshake. Inactivity keeps sockets open; socket/interface errors retry with fixed bounded exponential delays (250ms..30s). Interface changes are checked, socket reservations prevent duplicate receivers, idle retirement is coordinated with new viewers, and stops/restarts join cleanup. Slow viewers are isolated by bounded queues and write deadlines. Counters reset on process/channel replacement; normal Start/Stop/Restart preserve them. Manual Start/Stop overrides last for the process; enabled/startup persist.
-
-A wildcard playback bind uses a local URL for copying; choose a reachable explicit host for sharing or forward playback ports along with management over SSH. CIDR policy is always enforced on actual peers.
-
-## Management API and security
-
-Management is literal IPv4 loopback-only, with direct-peer, Host/port, Origin/Referer and cross-site checks; forwarded IPs never grant access. This is a **trusted local-user boundary**, not an account/session authentication system. No remote management bind is permitted. Optional same-host reverse-proxy support is disabled by default and requires explicit trusted TCP peers and exact external origins. The proxy must enforce authentication and client authorization on every route; see [Ubuntu/Nginx deployment instructions](deploy/NGINX.md) and the [Nginx example](deploy/nginx-management.conf). Playback has independent actual-peer CIDRs and no administration routes; empty CIDRs deny all, even localhost.
-
-Writes require a random per-process token from GET /api/v1/csrf, `X-CSRF-Token`, exact application/json, and strict bounded bodies. No permissive CORS; successful mutations are limited to 60/minute per daemon. Secrets in recognized sensitive keys, credentialed/query URLs and bearer/assignment patterns are redacted before JSON output/event retention. The application never logs playback request credentials or complete configuration bodies.
-
-| Method | Management path | Purpose |
-| --- | --- | --- |
-| GET | /health, /api/v1/status, /api/v1/interfaces, /api/v1/csrf | Existing readiness/status/discovery/token |
-| GET / POST | /api/v1/streams | Existing channel snapshots/create |
-| GET / PUT / DELETE | /api/v1/streams/{id} | Existing read/edit/delete |
-| POST | /api/v1/streams/{id}/start, /stop, /restart | Existing lifecycle controls |
-| GET | /api/v1/streams/{id}/status, /errors | Existing snapshots/errors |
-| GET | /api/v1/streams/{id}/metrics | Snapshot and bounded channel history |
-| GET | /api/v1/clients | Extended duration/bytes/average bitrate |
-| DELETE | /api/v1/clients/{id} | Safe subscription disconnect |
-| GET | /api/v1/dashboard, /api/v1/metrics | Summary/resources/history/activity |
-| GET | /api/v1/system | Real system/listener/security state |
-| GET / PUT | /api/v1/settings | Desired/active revisions and confirmed save |
-| POST | /api/v1/settings/validate, /rollback | Preview or confirmed restore |
-| GET | /api/v1/logs, /api/v1/logs/export | Sanitized filtered events / capped NDJSON |
-
-Settings PUT body: `{ "revision": 0, "settings": { ...complete settings from GET... }, "confirm": true }`. Validation uses the same settings object without confirmation. Rollback uses revision and confirm. Error envelopes use `error`; normal envelopes preserve existing stream/client routes. Validation 400, denial 403, missing 404, method 405, conflict 409, oversized 413, content type 415, capacity/rate 429, storage 500, unavailable/startup deadline 503. There is no duplicate network-discovery alias or generic service-command endpoint.
-
-Log filters: search, level (`debug/info/warn/error`), stream_id, RFC3339 since/until, limit (1..100) and offset (0..10000). Export caps at 1,000. Default persisted events: newest 2,000 and 7 days, configurable within 100..10000 events/1..30 days. Age/count pruning runs on insertion and retention updates; reads enforce the age policy. The queue is capped at 256; overflow/store failures are counted. Shutdown drains best-effort for two seconds. Event capture follows the configured logging level; this is operational history, not an immutable audit ledger.
-
-Metrics sample every 3s into bounded RAM: aggregate history 240 points, current channel histories 120 each. Deleted channel histories are removed. No runtime metrics are stored in SQLite. Rates are payload averages between samples; client rates average their own connection lifetime. CPU uses actual Linux getrusage deltas (100% = one core), RSS uses /proc, Go heap/goroutines use runtime APIs. Unsupported CPU/RSS values are null/unavailable, not zero.
-
-## Installation, builds and validation
+This task creates artifacts locally, not a published tag. After an approved release supplies the named files, its download pattern is:
 
 ```sh
-make build
-make linux VERSION=0.3.0-dev
-sh scripts/build-deb.sh amd64 0.3.0-dev build/udphttp-proxy-linux-amd64
-sh scripts/build-deb.sh arm64 0.3.0-dev build/udphttp-proxy-linux-arm64
-sudo apt install ./build/udphttp-proxy_0.3.0-dev_amd64.deb
-sudo systemctl restart udphttp-proxy
-journalctl -u udphttp-proxy -f -o cat
+sudo apt update
+sudo apt install -y curl ca-certificates
+VERSION=0.4.0-dev
+TAG=v0.4.0-dev # Replace with the approved tag that actually contains these artifacts.
+BASE="https://github.com/afrazafey/UDP-to-HTTP/releases/download/$TAG"
+curl --fail --location --output SHA256SUMS-phase4 "$BASE/SHA256SUMS-phase4"
+curl --fail --location --output 'udphttp-proxy_0.4.0~dev_amd64.deb' "$BASE/udphttp-proxy_0.4.0~dev_amd64.deb"
+sha256sum --check --ignore-missing SHA256SUMS-phase4
+sudo apt install './udphttp-proxy_0.4.0~dev_amd64.deb'
+sudo systemctl enable --now udphttp-proxy
 ```
 
-Paths remain /usr/bin/udphttp-proxy, /etc/udphttp-proxy/config.yaml, /var/lib/udphttp-proxy and /usr/lib/systemd/system/udphttp-proxy.service. Dedicated non-login account, no capabilities, high default ports; systemd limits writable state. dpkg conffiles survive upgrades. Remove stops the service and retains config/data; purge removes packaged config but deliberately retains state/account. No firewall changes or automatic root-only host tuning. File logging is disabled; raw JSON goes to stderr/journald.
+Use the matching filename/version/tag together; do not assume the example tag already exists. Configuration: `/etc/udphttp-proxy/config.yaml`; data: `/var/lib/udphttp-proxy`; executable: `/usr/bin/udphttp-proxy`. The package uses a dedicated non-login account and journald. Administrator-owned conffiles are preserved across upgrades.
+
+## 6. Debian 12+ installation
+
+Use the same verified `.deb` installation and systemd commands as Ubuntu. Select `amd64` for `uname -m` → `x86_64`, `arm64` for `aarch64`. Inspect a package with `dpkg-deb --info`/`--contents` before installation. [Linux guide](docs/INSTALL_LINUX.md) covers tar bundles and non-package operation too.
+
+## 7. Windows installation
+
+Verify `udphttp-proxy_0.4.0-dev_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
+
+```powershell
+.\udphttp-proxy.exe interfaces
+.\udphttp-proxy.exe serve --config .\configs\config.example.yaml
+```
+
+Interactive stop is Ctrl+C. To install the native LocalService SCM registration, review and run in elevated PowerShell:
+
+```powershell
+.\scripts\install-windows.ps1 -Binary (Resolve-Path .\udphttp-proxy.exe).Path
+$exe = Join-Path $env:ProgramFiles 'UDPHTTPProxy\udphttp-proxy.exe'
+& $exe service start
+& $exe service status
+& $exe service stop
+& $exe service restart
+```
+
+Config/data/logs live below `%ProgramData%\UDPHTTPProxy`. The service installer sets explicit ACLs, automatic startup and bounded JSON logging, and preserves an existing configuration. Service execution/control uses native Go/x/sys APIs, not a wrapper. **Implemented does not mean native SCM acceptance has passed here**; consult the report. See [Windows guide](docs/INSTALL_WINDOWS.md) for exact firewall, logging, service installation, upgrade and uninstall steps.
+
+## 8. Building from source — Linux
 
 ```sh
-gofmt -w cmd internal
+git clone https://github.com/afrazafey/UDP-to-HTTP.git
+cd UDP-to-HTTP
+npm --prefix frontend ci
+npm --prefix frontend run typecheck
+npm --prefix frontend test
+npm --prefix frontend run build
+go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
-cd frontend
-npm run typecheck
-npm test
-npm run build
-npm audit
+python3 scripts/build-release.py --version 0.4.0-dev
+dpkg-deb --info './build/udphttp-proxy_0.4.0~dev_amd64.deb'
 ```
 
-Frontend builds must finish before Go checks/builds read embedded assets. Linux cross-builds use CGO_ENABLED=0 GOOS=linux GOARCH=amd64/arm64; PowerShell sets these with `$env:NAME='value'`. CI includes actual native Linux unit/race tests, synthetic playback, persistence, settings validation and occupied-port rollback, then systemd/package lifecycle tests. Workflows are prepared; no repository was connected or CI dispatched here. See [LINUX_TESTING.md](LINUX_TESTING.md).
+`scripts/build-deb.sh amd64 VERSION BINARY` remains a wrapper around the portable Debian builder. Linux CI separately inspects, installs, upgrades, removes and purges packages. Set `SOURCE_DATE_EPOCH` for deterministic archive timestamps. Binaries link version/actual source SHA/build time; dirty checkouts are labeled. Source `go run` without release metadata explicitly says unlinked-source rather than inventing a build timestamp.
 
-For a provider-free local fixture, serve configs/phase2-local.yaml and run `python3 scripts/udp-generator.py --seconds 60`. Request /live/local-demo.ts on playback port 7781. The generator emits synthetic transport packets, not a decodable video program. Curl timeout is normal for a live stream with no EOF.
+## 9. Building from source — Windows
 
-## Source layout
-
-```text
-internal/stream/       preserved receiver/framer/manager; additive client/start metrics
-internal/operations/   staged settings, preflight, bounded monitoring and OS resources
-internal/events/       sanitized slog capture and bounded queue
-internal/storage/      additive v1/v2/v3 migrations, channels/settings/events
-internal/httpapi/      preserved management/playback plus operations APIs
-internal/cli/          startup validation, rollback and listener coordination
-frontend/src/pages/    overview, streams/details, network, clients, monitoring, logs, settings, system
-frontend/src/components/  reusable UI, charts, forms and stream controls
-frontend/src/hooks,services,types,utils/  shared polling, API, contracts and formatting
-frontend/src/LegacyApp.tsx,Streaming.tsx  retained Phase 1/2 UI fallback/regression coverage
+```powershell
+git clone https://github.com/afrazafey/UDP-to-HTTP.git
+Set-Location UDP-to-HTTP
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run typecheck
+npm.cmd --prefix frontend test
+npm.cmd --prefix frontend run build
+go fmt ./...
+go vet ./...
+go test ./...
+go test -race ./...
+python scripts/build-release.py --version 0.4.0-dev
+& .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 
-Project/module and Debian maintainer identity placeholders remain for the owner before public distribution. Historical reports/bundles are retained. Read [PHASE3_AUDIT.md](PHASE3_AUDIT.md), [PHASE3_REPORT.md](PHASE3_REPORT.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [ROADMAP.md](ROADMAP.md). Stop for review before Phase 4.
+Race tests need GCC/CGO. If Application Control blocks a generated executable, record the blocked test and use an approved CI host; do not disable policy. For Vite development, run the Go daemon separately and `cd frontend; npm.cmd run dev`; browse port 5173. Vite does not start the backend.
+
+## 10. Network configuration
+
+One user-verified deployment uses UDP `ens18 / 10.14.0.37` on `10.14.0.0/24` and HTTP `ens19 / 192.168.10.103` on `192.168.10.0/24`. TRACE URBAN is multicast group `239.1.1.61`, UDP port `1234`; playback is `http://192.168.10.103:7781/live/trace-urban.ts`, secondary listener 7782. These addresses are examples from one deployment and must be replaced elsewhere.
+
+Select explicit local interfaces, authorize each multicast group/unicast sender and client subnet, and review multicast routing, IGMP snooping/querier and firewall policy. The application does not change host networking. [Network guide](docs/NETWORK_CONFIGURATION.md) includes the complete example and Linux/Windows commands. Advertising a playback hostname is independent of binding a socket; configure `playlist.advertised_host` before exporting URLs.
+
+## 11. Adding and managing IPTV channels
+
+Streams → Add stream accepts ID/name, source type/IP/port/interface, enabled/startup/idle and buffer settings. Add TRACE URBAN using the example only on its tested network. Backend validation checks source policy, reserved exclusions, actual interface capability, limits and source/bind conflicts. Startup is on demand by default; manual Start pins a receiver for the process, and Stop/Restart affect that receiver only.
+
+Optional metadata: logo URL, TVG ID/name, group/category, sort order, description, preferred primary/secondary port. Search/filter/sort and group filtering are available. Bulk enable/disable/delete requires confirmation and uses atomic persistence. Duplicate pre-fills a new-channel draft and requires a unique source identity. Edits/import updates replace the affected receiver and disconnect its viewers; failures preserve prior data. Details show current health, bounded history, receiver/recovery events, clients and playback URL/M3U actions.
+
+## 12. M3U import and export
+
+Playlists & Import supports bounded local M3U/M3U8 files/paste, preview, selected/all-valid atomic commit, skip/update-existing confirmation and downloadable validation errors. Sources must already be allowed. The parser supports literal `udp://[@]IPv4:port` and exact legacy HTTP `/udp/multicast-IP:port`, never arbitrary HTTP streams or remote fetching. Export includes enabled channels, metadata/order/group filtering, primary/secondary/preferred URLs and individual entries.
+
+Remote `/playlist.m3u` on playback ports is off by default and requires separate explicit playlist CIDRs plus the playback CIDRs. Management export remains local/protected. See [M3U guide](docs/M3U_IMPORT_EXPORT.md) for formats, bodies and limitations.
+
+## 13. API and command reference
+
+Management base: `http://127.0.0.1:8080`. GETs inherit loopback/Host/origin guards. Mutations also require GET `/api/v1/csrf` → `token`, `X-CSRF-Token`, exact JSON, bounded bodies and write-rate policy. No permissive CORS or native remote account/session is provided.
+
+| Methods | Implemented management route | Purpose |
+| --- | --- | --- |
+| GET | `/health`, `/api/v1/status`, `/api/v1/interfaces`, `/api/v1/csrf` | Health/config/runtime/discovery/token |
+| GET, POST | `/api/v1/streams` | List snapshots/create a channel |
+| GET, PUT, DELETE | `/api/v1/streams/{id}` | Read/replace/delete |
+| POST | `/api/v1/streams/{id}/start`, `/stop`, `/restart` | Receiver lifecycle |
+| GET | `/api/v1/streams/{id}/status`, `/errors`, `/metrics` | Current health/errors/bounded history |
+| POST | `/api/v1/streams/bulk` | Confirmed atomic enable/disable/delete |
+| GET | `/api/v1/clients` | Actual connected peers/queues/bytes/duration |
+| DELETE | `/api/v1/clients/{id}` | Disconnect a subscription |
+| GET | `/api/v1/dashboard`, `/api/v1/metrics`, `/api/v1/system` | Operational summary/resources/history/security |
+| GET, PUT | `/api/v1/settings` | Desired/active settings/revisions and confirmed save |
+| POST | `/api/v1/settings/validate`, `/rollback` | Preview/confirmed accepted-state rollback |
+| GET | `/api/v1/logs`, `/api/v1/logs/export` | Filtered bounded sanitized events/NDJSON |
+| GET | `/api/v1/playlist/config`, `/api/v1/playlist.m3u` | Read-only advertising policy/M3U export |
+| POST | `/api/v1/import/preview`, `/commit` | Bounded preview and confirmed atomic import |
+| GET, POST | `/api/v1/diagnostics` | Current observations/fixed safe diagnostic actions |
+
+Playback routes are GET `/live/{id}.ts`, `/udp/{multicast-IP}:{port}`, and explicitly enabled `/playlist.m3u`; playback listeners expose no management API. Group routes require an enabled unambiguous configured source.
+
+Channel JSON uses the field names in `configs/config.example.yaml`/the Channel type: `id`, `name`, `source_type`, `source_address`, `source_port`, `interface`, `enabled`, optional startup/buffers/metadata. Defaults fill omitted startup/buffer fields. Bulk body: `{ "ids": ["trace-urban"], "action": "disable", "confirm": true }`. Import bodies are in the [M3U guide](docs/M3U_IMPORT_EXPORT.md). Diagnostics accept only `action` and `channel_id`, with actions interface/source/multicast_eligibility/route/listener_connectivity/playback_ports.
+
+Settings PUT uses `{ "revision": CURRENT, "settings": COMPLETE_OBJECT_FROM_GET, "confirm": true }`. Validate uses the same settings; rollback requires revision/confirmation. YAML-only management/storage/recovery/playlist/log-format fields cannot be changed through this object. Policy/bind changes are staged; general/log-level/retention preferences apply live. Startup can roll back a failed playback bind while preserving management.
+
+Error envelopes use `error`. Typical statuses: 400 invalid, 403 denied, 404 missing, 405 method, 409 conflict, 413 size, 415 content type, 429 limits, 500 persistence, 503 unavailable/no startup data. Logs support search/level/stream_id/RFC3339 since/until, limit/offset; export caps at 1,000. Metrics sample every 3s into bounded RAM (240 aggregate/120 per channel), not SQLite. Unsupported observations are null/unavailable.
+
+Commands: `serve --config FILE`, `interfaces`, `version`, `config validate --config FILE`, `database backup --config FILE --output NEW_DB`, `database verify --input BACKUP`, `database restore --input BACKUP --output NEW_DB --confirm-offline`, and Windows `service install/start/stop/restart/status/uninstall`. Database commands are CLI-only; there is no arbitrary file, shell, scanner or service-control HTTP endpoint.
+
+## 14. Production deployment
+
+Use the platform's service manager, least privilege, private persistent storage, static addressing, scoped firewalls, verified backups and measured resource limits. Review recovery/metrics/log retention and degraded/offline states. Read [production deployment and release gates](docs/PRODUCTION_DEPLOYMENT.md) and [safe upgrade/restore](docs/UPGRADE.md). Do not rely on short loopback measurements as a production sizing or long-term reliability guarantee.
+
+## 15. Nginx integration
+
+Optional playback proxying can provide managed TLS/access controls but adds buffering, timeout and client identity concerns. Direct Go playback is preferable when those gateway features are unnecessary. Validate disabled stream buffering, long-lived playback timeouts and actual-peer allowlist behavior before deployment; Go sees the proxy address and never trusts forwarded client IPs. Public endpoints need TLS and independent authorization.
+
+No new unvalidated playback server block is presented as production-ready; [deployment guidance](docs/PRODUCTION_DEPLOYMENT.md) describes target-host checks. Management should use SSH forwarding. Existing explicit trusted-proxy compatibility remains disabled by default and requires authentication, TLS and a documented exact-origin design before production use; never expose unauthenticated administration.
+
+## 16. Troubleshooting
+
+Start with `/health`, channel details and logs. [Troubleshooting](docs/TROUBLESHOOTING.md) covers missing multicast/wrong adapter, allowlist rejection, playback 403/404/503, malformed/no TS, occupied ports, Windows/Linux firewall, changing interfaces, IGMP, stalled sources, slow clients, DB locks, failed upgrades and Vite/backend connectivity, with exact commands for both OS families.
+
+## 17. Upgrading
+
+Back up/verify the existing DB before replacing binaries. Migrations are versioned and transactional; schema 4 preserves prior channels/settings and adds metadata defaults. Old binaries need their matching pre-upgrade snapshot for rollback. Do not delete/reset the database, decrement user_version, reseed production data or copy only a live WAL main file. See [UPGRADE.md](docs/UPGRADE.md).
+
+## 18. Uninstalling
+
+Linux remove stops the service and preserves configuration/state; purge removes packaged config but deliberately retains data/account. Windows stop + `service uninstall` removes SCM registration and preserves config/data/logs. Intentional data removal is separate and should follow a verified backup and path review. [Upgrade/uninstall guide](docs/UPGRADE.md) gives both workflows.
+
+## 19. Security
+
+Local management trusts local users, keeps strict peer/Host/origin/referrer/CSRF/size guards, and cannot bind remotely. Sources and playback peers remain explicitly restricted. Imports never authorize sources or fetch URLs; metadata and TS parsing are bounded. No arbitrary network scanning, shell execution, path upload or remote backup endpoint is added. Read [SECURITY.md](docs/SECURITY.md), especially backup privacy and trusted-proxy limitations.
+
+## 20. License and contributing
+
+**No repository license is currently declared.** Do not assume open-source redistribution rights or invent a license. Resolve this with the owner before publishing/distributing a stable release; dependencies retain their own licenses.
+
+Contribute through a feature branch and reviewable PR; do not push to main or publish releases without approval. Preserve the dual-network shared-receiver behavior, avoid policy changes in imports, use migrations for state changes, add relevant unit/integration/platform tests, run the documented checks, and update docs against actual routes/commands. Native CI results, skipped environment tests, synthetic measurements and physical IPTV acceptance must be reported separately. See [the Phase 4 plan](docs/PHASE4_PLAN.md), [changelog](CHANGELOG.md) and [validation report](docs/PHASE4_REPORT.md).

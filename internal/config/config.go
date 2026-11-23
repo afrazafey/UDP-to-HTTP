@@ -48,6 +48,7 @@ func (d *Duration) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
+	LogFormat  string           `yaml:"log_format" json:"log_format"`
 	Management Management       `yaml:"management" json:"management"`
 	Network    Network          `yaml:"network" json:"network"`
 	Streaming  Streaming        `yaml:"streaming" json:"streaming"`
@@ -55,6 +56,21 @@ type Config struct {
 	Logging    Logging          `yaml:"logging" json:"logging"`
 	Channels   []stream.Channel `yaml:"channels" json:"channels"`
 	Dashboard  Dashboard        `yaml:"dashboard" json:"dashboard"`
+	Recovery   Recovery         `yaml:"recovery" json:"recovery"`
+	Playlist   Playlist         `yaml:"playlist" json:"playlist"`
+}
+type Recovery struct {
+	Enabled     bool     `yaml:"enabled" json:"enabled"`
+	MinDelay    Duration `yaml:"min_delay" json:"min_delay"`
+	MaxDelay    Duration `yaml:"max_delay" json:"max_delay"`
+	Jitter      float64  `yaml:"jitter" json:"jitter"`
+	RejoinAfter Duration `yaml:"rejoin_after" json:"rejoin_after"`
+	MaxAttempts int      `yaml:"max_attempts" json:"max_attempts"`
+}
+type Playlist struct {
+	AdvertisedHost        string   `yaml:"advertised_host" json:"advertised_host"`
+	RemoteEnabled         bool     `yaml:"remote_enabled" json:"remote_enabled"`
+	AllowedClientNetworks []string `yaml:"allowed_client_networks" json:"allowed_client_networks"`
 }
 type Dashboard struct {
 	Name               string `yaml:"name" json:"name"`
@@ -112,6 +128,9 @@ type Logging struct {
 
 func Default() Config {
 	return Config{
+		LogFormat:  "json",
+		Recovery:   Recovery{Enabled: true, MinDelay: Duration(250 * time.Millisecond), MaxDelay: Duration(30 * time.Second), Jitter: 0.2, RejoinAfter: Duration(30 * time.Second)},
+		Playlist:   Playlist{AllowedClientNetworks: []string{}},
 		Management: Management{Host: "127.0.0.1", Port: 8080, ReadTimeout: Duration(10 * time.Second), WriteTimeout: Duration(15 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(10 * time.Second), ReverseProxy: ManagementReverseProxy{TrustedProxies: []string{}, TrustedOrigins: []string{}}},
 		Network:    Network{HTTPInterface: "127.0.0.1", HTTPPort: 7781, SecondaryHTTPPort: 7782},
 		Streaming:  Streaming{Enabled: true, UDPReceiveBuffer: 4 << 20, StreamBuffer: 8 << 20, MaxClients: 100, ConnectTimeout: Duration(10 * time.Second), AllowedClientNetworks: []string{}, AllowedMulticastGroups: []string{}, AllowedUnicastSources: []string{}, BlockedMulticastNetworks: []string{"224.0.0.0/24"}, MaxStreams: 128, ClientBufferBytes: 256 << 10, MaxBufferedBytes: 64 << 20, InactivityTimeout: Duration(10 * time.Second), ClientWriteTimeout: Duration(10 * time.Second)},
@@ -158,7 +177,6 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	return cfg, cfg.Validate()
 }
 
-var interfaceName = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.:-]{0,14}$`)
 var numericAddress = regexp.MustCompile(`^[0-9.]+$`)
 
 func validInterface(s string) bool {
@@ -171,7 +189,7 @@ func validInterface(s string) bool {
 	if strings.Contains(s, ".") && numericAddress.MatchString(s) {
 		return false
 	}
-	return interfaceName.MatchString(s) && !strings.Contains(s, "..") && !strings.Contains(s, ":")
+	return len(s) <= 256 && strings.TrimSpace(s) != "" && !strings.ContainsAny(s, "/\\\x00\r\n") && !strings.Contains(s, "..") && !strings.Contains(s, ":")
 }
 func validPort(p int) bool { return p > 0 && p <= 65535 }
 
@@ -183,6 +201,20 @@ func (c Config) Validate() error {
 		}
 	}
 	ip, err := netip.ParseAddr(c.Management.Host)
+	add(c.LogFormat == "json" || c.LogFormat == "text", "log_format must be json or text")
+	add(c.Recovery.MinDelay >= Duration(10*time.Millisecond) && c.Recovery.MaxDelay >= c.Recovery.MinDelay && c.Recovery.MaxDelay <= Duration(10*time.Minute), "recovery delays must be 10ms..10m and max_delay >= min_delay")
+	add(c.Recovery.Jitter >= 0 && c.Recovery.Jitter <= 0.5, "recovery.jitter must be 0..0.5")
+	add(c.Recovery.RejoinAfter >= Duration(time.Second) && c.Recovery.RejoinAfter <= Duration(24*time.Hour), "recovery.rejoin_after must be 1s..24h")
+	add(c.Recovery.MaxAttempts >= 0 && c.Recovery.MaxAttempts <= 100000, "recovery.max_attempts must be 0..100000 (0 means unlimited bounded retries)")
+	if c.Playlist.AdvertisedHost != "" {
+		_, e := ParseManagementOrigin("http://" + c.Playlist.AdvertisedHost)
+		add(e == nil && !strings.Contains(c.Playlist.AdvertisedHost, ":"), "playlist.advertised_host must be an IPv4 address or hostname without scheme, port or path")
+	}
+	add(!c.Playlist.RemoteEnabled || (c.Playlist.AdvertisedHost != "" && len(c.Playlist.AllowedClientNetworks) > 0), "remote playlists require an advertised_host and explicit client CIDRs")
+	for _, cidr := range c.Playlist.AllowedClientNetworks {
+		p, e := netip.ParsePrefix(cidr)
+		add(e == nil && p.Addr().Is4() && p == p.Masked(), "playlist.allowed_client_networks requires canonical IPv4 CIDRs")
+	}
 	add(err == nil && ip.Is4() && ip.IsLoopback(), "management.host must be a literal IPv4 loopback address")
 	add(validPort(c.Management.Port), "management.port must be 1..65535")
 	if err := c.Management.ReverseProxy.Validate(); err != nil {
@@ -218,7 +250,7 @@ func (c Config) Validate() error {
 	}
 	for _, s := range c.Streaming.AllowedMulticastGroups {
 		p, e := netip.ParseAddr(s)
-		add(e == nil && p.Is4() && p.IsMulticast(), "allowed_multicast_groups requires literal IPv4 multicast addresses")
+		add(e == nil && p.Is4() && p.IsMulticast() && !netip.MustParsePrefix("224.0.0.0/24").Contains(p), "allowed_multicast_groups requires literal IPv4 multicast addresses excluding reserved 224.0.0.0/24")
 	}
 	for _, s := range c.Streaming.AllowedUnicastSources {
 		p, e := netip.ParseAddr(s)

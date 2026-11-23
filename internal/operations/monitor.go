@@ -10,6 +10,9 @@ import (
 )
 
 type Summary struct {
+	Recovering       int     `json:"recovering"`
+	Offline          int     `json:"offline"`
+	ReceiverRestarts uint64  `json:"receiver_restarts"`
 	Total            int     `json:"total"`
 	Running          int     `json:"running"`
 	Stopped          int     `json:"stopped"`
@@ -39,6 +42,13 @@ type Sample struct {
 func Aggregate(items []stream.Snapshot, receivers int) Summary {
 	s := Summary{Total: len(items), ActiveReceivers: receivers}
 	for _, item := range items {
+		if item.Health == "recovering" {
+			s.Recovering++
+		}
+		if item.Health == "offline" {
+			s.Offline++
+		}
+		s.ReceiverRestarts += item.Counters.ReceiverRestarts
 		switch item.State {
 		case "running":
 			s.Running++

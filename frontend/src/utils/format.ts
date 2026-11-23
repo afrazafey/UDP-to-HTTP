@@ -21,11 +21,17 @@ export function playbackURL(
   stream: Stream,
   settings: Settings,
   interfaces: NetworkInterface[],
+  advertisedHost = "",
 ) {
   let host =
     settings.network.http_bind_addresses?.[0] ||
     settings.network.http_interface;
   host = interfaces.find((item) => item.name === host)?.ipv4[0] || host;
+  if (advertisedHost) host = advertisedHost;
   if (!host || host === "0.0.0.0") host = window.location.hostname;
-  return `http://${host}:${settings.network.http_port}/live/${encodeURIComponent(stream.channel.id)}.ts`;
+  const port =
+    stream.channel.preferred_playback_port === "secondary"
+      ? settings.network.secondary_http_port
+      : settings.network.http_port;
+  return `http://${host}:${port}/live/${encodeURIComponent(stream.channel.id)}.ts`;
 }

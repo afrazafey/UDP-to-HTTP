@@ -46,14 +46,14 @@ export async function mutate<T>(
     signal,
   );
 }
-export async function download(path: string) {
+export async function download(path: string, filename = "udphttp-diagnostics.ndjson") {
   const response = await fetch(path, { signal: AbortSignal.timeout(10000) });
   if (!response.ok)
     throw new APIError("Diagnostic export failed", response.status);
   const url = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "udphttp-diagnostics.ndjson";
+  anchor.download = filename;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

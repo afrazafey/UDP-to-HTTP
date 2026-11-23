@@ -174,6 +174,15 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		add(a)
 	}
 	r.Attrs(func(a slog.Attr) bool { add(a); return true })
+	for key, value := range map[string]string{"component": e.Component, "channel_id": e.StreamID, "event_type": "operational", "error_category": "none"} {
+		if _, ok := e.Context[key]; !ok {
+			if key == "error_category" && r.Level >= slog.LevelWarn {
+				value = "operational"
+			}
+			e.Context[key] = value
+			clean.AddAttrs(slog.String(key, value))
+		}
+	}
 	if h.sink.closed.Load() {
 		h.sink.Dropped.Add(1)
 	} else {

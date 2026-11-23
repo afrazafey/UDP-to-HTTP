@@ -18,6 +18,9 @@ export function OverviewPage({ data }: { data: OperationsData }) {
   return (
     <>
       <div className="op-stats-grid">
+        <Stat label="Recovering channels" value={sum?.recovering} />
+        <Stat label="Offline channels" value={sum?.offline} />
+        <Stat label="Receiver restarts" value={sum?.receiver_restarts} />
         <Stat label="Configured channels" value={sum?.total} />
         <Stat label="Running channels" value={sum?.running} />
         <Stat label="Stopped / disabled" value={sum?.stopped} />
@@ -43,6 +46,51 @@ export function OverviewPage({ data }: { data: OperationsData }) {
         description="Measured payload rates • bounded process history • no samples before service start"
       >
         <ThroughputChart samples={sum ? dashboard.history : []} />
+      </Panel>
+      <Panel
+        title="Stream health"
+        action={
+          <a href="#/streams" className="op-link">
+            All channels
+          </a>
+        }
+        description="First eight channels; complete searchable health table is available in Streams."
+      >
+        <div className="op-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Channel / source</th>
+                <th>Health</th>
+                <th>Input / output</th>
+                <th>Viewers</th>
+                <th>Uptime</th>
+                <th>Last valid TS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.streams.slice(0, 8).map((s) => (
+                <tr key={s.channel.id}>
+                  <td>
+                    <a href={`#/streams/${s.channel.id}`}>{s.channel.name}</a>
+                    <small>
+                      {s.channel.source_address}:{s.channel.source_port}
+                    </small>
+                  </td>
+                  <td>
+                    <Badge state={s.health ?? s.state} />
+                  </td>
+                  <td>
+                    {rate(s.input_bitrate)} / {rate(s.output_bitrate)}
+                  </td>
+                  <td>{s.clients}</td>
+                  <td>{duration(s.uptime_seconds)}</td>
+                  <td>{timestamp(s.last_packet_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Panel>
       <div className="op-two-column">
         <Panel

@@ -17,7 +17,7 @@ type Framer struct {
 	synced  bool
 	pids    [8192]*pidState
 }
-type FrameStats struct{ Packets, CorruptPackets, DiscardedBytes, ContinuityErrors, Discontinuities, DuplicatePackets uint64 }
+type FrameStats struct{ Packets, CorruptPackets, DiscardedBytes, ContinuityErrors, Discontinuities, DuplicatePackets, SyncErrors uint64 }
 
 func (f *Framer) Push(data []byte) ([]byte, FrameStats) {
 	f.pending = append(f.pending, data...)
@@ -49,6 +49,7 @@ func (f *Framer) Push(data []byte) ([]byte, FrameStats) {
 			break
 		}
 		if f.pending[0] != 0x47 {
+			stats.SyncErrors++
 			stats.CorruptPackets++
 			f.synced = false
 			continue

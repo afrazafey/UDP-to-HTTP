@@ -5,25 +5,34 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
 )
 
 type Channel struct {
-	ID                 string `json:"id" yaml:"id"`
-	Name               string `json:"name" yaml:"name"`
-	SourceType         string `json:"source_type" yaml:"source_type"`
-	SourceAddress      string `json:"source_address" yaml:"source_address"`
-	SourcePort         int    `json:"source_port" yaml:"source_port"`
-	Interface          string `json:"interface" yaml:"interface"`
-	Enabled            bool   `json:"enabled" yaml:"enabled"`
-	IdleTimeoutSeconds int    `json:"idle_timeout_seconds" yaml:"idle_timeout_seconds"`
-	MaxClients         int    `json:"max_clients" yaml:"max_clients"`
-	ClientBufferBytes  int    `json:"client_buffer_bytes" yaml:"client_buffer_bytes"`
-	UDPReceiveBuffer   int    `json:"udp_receive_buffer" yaml:"udp_receive_buffer"`
-	Startup            string `json:"startup" yaml:"startup"`
+	LogoURL               string `json:"logo_url" yaml:"logo_url"`
+	TVGID                 string `json:"tvg_id" yaml:"tvg_id"`
+	TVGName               string `json:"tvg_name" yaml:"tvg_name"`
+	Group                 string `json:"group" yaml:"group"`
+	SortOrder             int    `json:"sort_order" yaml:"sort_order"`
+	Description           string `json:"description" yaml:"description"`
+	PreferredPlaybackPort string `json:"preferred_playback_port" yaml:"preferred_playback_port"`
+	ID                    string `json:"id" yaml:"id"`
+	Name                  string `json:"name" yaml:"name"`
+	SourceType            string `json:"source_type" yaml:"source_type"`
+	SourceAddress         string `json:"source_address" yaml:"source_address"`
+	SourcePort            int    `json:"source_port" yaml:"source_port"`
+	Interface             string `json:"interface" yaml:"interface"`
+	Enabled               bool   `json:"enabled" yaml:"enabled"`
+	IdleTimeoutSeconds    int    `json:"idle_timeout_seconds" yaml:"idle_timeout_seconds"`
+	MaxClients            int    `json:"max_clients" yaml:"max_clients"`
+	ClientBufferBytes     int    `json:"client_buffer_bytes" yaml:"client_buffer_bytes"`
+	UDPReceiveBuffer      int    `json:"udp_receive_buffer" yaml:"udp_receive_buffer"`
+	Startup               string `json:"startup" yaml:"startup"`
 }
 type Policy struct {
 	AllowedMulticastGroups   []string
@@ -33,9 +42,11 @@ type Policy struct {
 }
 
 var channelID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
-var interfaceID = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,14}$`)
 
 func (c Channel) Defaults(maxClients, buffer, udpBuffer int) Channel {
+	if c.PreferredPlaybackPort == "" {
+		c.PreferredPlaybackPort = "primary"
+	}
 	if c.Startup == "" {
 		c.Startup = "on_demand"
 	}
@@ -51,6 +62,28 @@ func (c Channel) Defaults(maxClients, buffer, udpBuffer int) Channel {
 	return c
 }
 func (c Channel) Validate(p Policy) error {
+	for _, value := range []string{c.TVGID, c.TVGName, c.Group} {
+		if len(value) > 256 || strings.ContainsAny(value, "\"\r\n") {
+			return errors.New("playlist metadata must be at most 256 bytes without quotes or line breaks")
+		}
+		for _, r := range value {
+			if r < 32 || r == 127 {
+				return errors.New("playlist metadata contains control characters")
+			}
+		}
+	}
+	if len(c.Description) > 2048 || c.SortOrder < 0 || c.SortOrder > 1000000 {
+		return errors.New("invalid description length or sort_order (0..1000000)")
+	}
+	if c.PreferredPlaybackPort != "" && c.PreferredPlaybackPort != "primary" && c.PreferredPlaybackPort != "secondary" {
+		return errors.New("preferred_playback_port must be primary or secondary")
+	}
+	if c.LogoURL != "" {
+		u, err := url.Parse(c.LogoURL)
+		if err != nil || len(c.LogoURL) > 2048 || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.LogoURL, "\"\r\n\t") {
+			return errors.New("logo_url must be a bounded HTTP(S) URL without credentials or control characters")
+		}
+	}
 	if !channelID.MatchString(c.ID) {
 		return errors.New("id must contain 1..64 letters, digits, hyphens or underscores")
 	}
@@ -76,7 +109,7 @@ func (c Channel) Validate(p Policy) error {
 		if !local.Is4() || local.IsMulticast() || local.IsUnspecified() {
 			return errors.New("interface must be a local unicast IPv4 address")
 		}
-	} else if !interfaceID.MatchString(c.Interface) {
+	} else if len(c.Interface) > 256 || strings.TrimSpace(c.Interface) == "" || strings.ContainsAny(c.Interface, "/\\\r\n\x00") {
 		return errors.New("invalid interface name")
 	}
 	allowed := false
@@ -84,6 +117,9 @@ func (c Channel) Validate(p Policy) error {
 	case "multicast":
 		if !ip.IsMulticast() {
 			return errors.New("multicast source_address must be in 224.0.0.0/4")
+		}
+		if netip.MustParsePrefix("224.0.0.0/24").Contains(ip) {
+			return errors.New("reserved local-control multicast groups 224.0.0.0/24 are always blocked")
 		}
 		for _, cidr := range p.BlockedMulticastNetworks {
 			prefix, e := netip.ParsePrefix(cidr)
@@ -166,6 +202,10 @@ type RecentError struct {
 	Message   string    `json:"message"`
 }
 type Counters struct {
+	SyncErrors            uint64 `json:"sync_errors"`
+	ReceiverRestarts      uint64 `json:"receiver_restarts"`
+	Recoveries            uint64 `json:"recoveries"`
+	RecoveryFailures      uint64 `json:"recovery_failures"`
 	InputBytes            uint64 `json:"input_bytes"`
 	OutputBytes           uint64 `json:"output_bytes"`
 	Datagrams             uint64 `json:"datagrams"`
@@ -180,16 +220,21 @@ type Counters struct {
 	RejectedDatagrams     uint64 `json:"rejected_datagrams"`
 }
 type Snapshot struct {
-	StartedAt     *time.Time    `json:"started_at"`
-	Channel       Channel       `json:"channel"`
-	State         string        `json:"state"`
-	Clients       int           `json:"clients"`
-	UptimeSeconds int64         `json:"uptime_seconds"`
-	LastPacketAt  *time.Time    `json:"last_packet_at"`
-	InputBitrate  float64       `json:"input_bitrate"`
-	OutputBitrate float64       `json:"output_bitrate"`
-	Counters      Counters      `json:"counters"`
-	Errors        []RecentError `json:"errors"`
+	Health           string        `json:"health"`
+	LastDatagramAt   *time.Time    `json:"last_datagram_at"`
+	LastRecoveryAt   *time.Time    `json:"last_recovery_at"`
+	SocketBound      bool          `json:"socket_bound"`
+	MembershipJoined bool          `json:"membership_joined"`
+	StartedAt        *time.Time    `json:"started_at"`
+	Channel          Channel       `json:"channel"`
+	State            string        `json:"state"`
+	Clients          int           `json:"clients"`
+	UptimeSeconds    int64         `json:"uptime_seconds"`
+	LastPacketAt     *time.Time    `json:"last_packet_at"`
+	InputBitrate     float64       `json:"input_bitrate"`
+	OutputBitrate    float64       `json:"output_bitrate"`
+	Counters         Counters      `json:"counters"`
+	Errors           []RecentError `json:"errors"`
 }
 type ClientSnapshot struct {
 	ID              uint64    `json:"id"`

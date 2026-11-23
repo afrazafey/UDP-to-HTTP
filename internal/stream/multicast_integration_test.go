@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || windows
 
 package stream
 
@@ -19,7 +19,7 @@ func TestMulticastJoinForwardLeave(t *testing.T) {
 	}
 	var name string
 	for _, item := range items {
-		if item.Up && item.Multicast && len(item.IPv4) > 0 {
+		if item.Up && item.Multicast && !item.Loopback && len(item.IPv4) > 0 {
 			name = item.Name
 			break
 		}
@@ -71,7 +71,8 @@ func TestMulticastJoinForwardLeave(t *testing.T) {
 	defer cancel()
 	got, err := sub.Next(ctx)
 	if err != nil || string(got) != string(want) {
-		t.Fatalf("multicast forwarding failed: %v", err)
+		snapshot, _ := m.Get(c.ID)
+		t.Fatalf("multicast forwarding failed on %s: %v; socket=%v membership=%v datagrams=%d rejected=%d errors=%v", name, err, snapshot.SocketBound, snapshot.MembershipJoined, snapshot.Counters.Datagrams, snapshot.Counters.RejectedDatagrams, snapshot.Errors)
 	}
 	if err = m.Action(c.ID, "stop"); err != nil {
 		t.Fatal(err)

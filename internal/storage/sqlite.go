@@ -18,6 +18,15 @@ import (
 type Store struct{ db *sql.DB }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, true)
+}
+func OpenForBackup(ctx context.Context, path string) (*Store, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	return open(ctx, path, false)
+}
+func open(ctx context.Context, path string, migrate bool) (*Store, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -54,7 +63,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
-	if err = s.migrate(ctx); err != nil {
+	if migrate {
+		err = s.migrate(ctx)
+	} else {
+		err = db.PingContext(ctx)
+	}
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize SQLite: %w", err)
 	}
@@ -73,8 +87,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 3 {
-		return fmt.Errorf("database schema %d is newer than supported schema 3", version)
+	if version > 4 {
+		return fmt.Errorf("database schema %d is newer than supported schema 4", version)
 	}
 	if version == 0 {
 		if _, err = tx.ExecContext(ctx, `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL CHECK(json_valid(value)), updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))); PRAGMA user_version=1;`); err != nil {
@@ -88,6 +102,19 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	if version < 3 {
 		if _, err = tx.ExecContext(ctx, `CREATE TABLE server_settings (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, accepted_revision INTEGER NOT NULL, desired TEXT NOT NULL CHECK(json_valid(desired)), accepted TEXT NOT NULL CHECK(json_valid(accepted)), last_error TEXT NOT NULL DEFAULT ''); CREATE TABLE operational_events (id INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT NOT NULL, level TEXT NOT NULL, component TEXT NOT NULL, stream_id TEXT NOT NULL, message TEXT NOT NULL, context TEXT NOT NULL CHECK(json_valid(context))); CREATE INDEX events_time ON operational_events(time); CREATE INDEX events_stream ON operational_events(stream_id,id); PRAGMA user_version=3;`); err != nil {
+			return err
+		}
+	}
+	if version < 4 {
+		if _, err = tx.ExecContext(ctx, `UPDATE channels SET configuration=json_set(configuration,
+		'$.logo_url',coalesce(json_extract(configuration,'$.logo_url'),''),
+		'$.tvg_id',coalesce(json_extract(configuration,'$.tvg_id'),''),
+		'$.tvg_name',coalesce(json_extract(configuration,'$.tvg_name'),''),
+		'$.group',coalesce(json_extract(configuration,'$.group'),''),
+		'$.sort_order',coalesce(json_extract(configuration,'$.sort_order'),0),
+		'$.description',coalesce(json_extract(configuration,'$.description'),''),
+		'$.preferred_playback_port',coalesce(json_extract(configuration,'$.preferred_playback_port'),'primary'));
+		PRAGMA user_version=4;`); err != nil {
 			return err
 		}
 	}

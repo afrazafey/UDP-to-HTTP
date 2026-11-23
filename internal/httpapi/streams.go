@@ -201,6 +201,25 @@ func (s *Service) playback(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 405, map[string]string{"error": "Playback requires GET"})
 		return
 	}
+	if r.URL.Path == "/playlist.m3u" {
+		if !s.options.Config.Playlist.RemoteEnabled {
+			http.NotFound(w, r)
+			return
+		}
+		permitted := false
+		for _, cidr := range s.options.Config.Playlist.AllowedClientNetworks {
+			p, e := netip.ParsePrefix(cidr)
+			if e == nil && p.Contains(ip.Unmap()) {
+				permitted = true
+			}
+		}
+		if !permitted {
+			writeJSON(w, 403, map[string]string{"error": "Playlist client IP is not allowed"})
+			return
+		}
+		s.exportPlaylist(w, r)
+		return
+	}
 	if s.options.Streams == nil || !s.options.Config.Streaming.Enabled {
 		writeJSON(w, 503, map[string]string{"error": "Streaming engine is disabled"})
 		return

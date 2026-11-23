@@ -1,5 +1,5 @@
 import type { OperationsData, Stream } from "../../types/operations";
-import { mutate } from "../../services/api";
+import { mutate, download } from "../../services/api";
 import { playbackURL } from "../../utils/format";
 import { Button, CopyButton, useAction } from "../ui";
 export function StreamControls({
@@ -66,8 +66,28 @@ export function StreamControls({
         </Button>
       )}
       <CopyButton
-        value={playbackURL(stream, data.settings.active, data.interfaces)}
+        value={playbackURL(
+          stream,
+          data.settings.active,
+          data.interfaces,
+          String(data.settings.read_only.advertised_playback_host ?? ""),
+        )}
       />
+      <Button
+        disabled={action.busy || !stream.channel.enabled}
+        onClick={() =>
+          void action.run(
+            () =>
+              download(
+                `/api/v1/playlist.m3u?id=${encodeURIComponent(stream.channel.id)}`,
+                `${stream.channel.id}.m3u`,
+              ),
+            "M3U entry downloaded",
+          )
+        }
+      >
+        M3U
+      </Button>
       <a className="op-link" href={`#/streams/${stream.channel.id}`}>
         Details
       </a>

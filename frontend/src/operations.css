@@ -1,3 +1,20 @@
+.op-state-healthy {
+  color: var(--success, #16865b);
+}
+.op-state-recovering,
+.op-state-degraded,
+.op-state-waiting_for_source {
+  color: var(--warning, #ad7100);
+}
+.op-state-offline {
+  color: var(--muted);
+}
+.op-diagnostic-result {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .op-shell {
   --op-accent: var(--accent);
   font-size: 1rem;

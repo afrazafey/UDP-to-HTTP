@@ -63,6 +63,9 @@ export interface Sample {
   clients: number;
 }
 export interface Summary {
+  recovering?: number;
+  offline?: number;
+  receiver_restarts?: number;
   total: number;
   running: number;
   stopped: number;

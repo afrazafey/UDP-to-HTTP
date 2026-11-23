@@ -13,9 +13,10 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/buildinfo"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/service"
 )
 
-const usage = "Usage: udphttp-proxy serve [--config path] | version | config validate [--config path] | interfaces\n"
+const usage = "Usage: udphttp-proxy serve [--config path] | version | config validate [--config path] | interfaces | database backup|verify|restore | service install|start|stop|restart|status|uninstall (Windows)\n"
 
 func Run(ctx context.Context, args []string, out, errOut io.Writer, getenv func(string) string) error {
 	if len(args) == 0 {
@@ -23,6 +24,10 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, getenv func(
 		return errors.New("a command is required")
 	}
 	switch args[0] {
+	case "service":
+		return service.Command(ctx, args[1:], out, func(ctx context.Context, args []string, logs io.Writer) error { return serve(ctx, args, logs, getenv) })
+	case "database":
+		return database(ctx, args[1:], out, errOut, getenv)
 	case "help", "--help", "-h":
 		fmt.Fprint(out, usage)
 		return nil
