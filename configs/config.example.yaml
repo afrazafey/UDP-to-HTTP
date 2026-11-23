@@ -1,0 +1,40 @@
+# Management remains local-only. Playback listeners have a separate CIDR policy.
+management:
+  host: 127.0.0.1
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 15s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+
+network:
+  multicast_interface: "" # Select a real interface name or local IPv4 address.
+  http_interface: 127.0.0.1
+  http_port: 7781
+  secondary_http_port: 7782 # 0 disables the secondary playback listener.
+  http_bind_addresses: [] # Optional explicit local IPv4 addresses; 0.0.0.0 is opt-in.
+
+streaming:
+  enabled: true
+  udp_receive_buffer: 4194304
+  stream_buffer: 8388608
+  max_clients: 100
+  connect_timeout: 10s
+  allowed_client_networks: [] # Deny all playback until explicitly configured.
+  allowed_multicast_groups: []
+  allowed_unicast_sources: []
+  blocked_multicast_networks: ["224.0.0.0/24"]
+  allow_loopback_unicast: false
+  max_streams: 128
+  client_buffer_bytes: 262144
+  max_buffered_bytes: 67108864
+  inactivity_timeout: 10s
+  client_write_timeout: 10s
+
+# Imported into SQLite once, at the first Phase 2 startup. Thereafter use the API.
+channels: []
+
+storage:
+  path: data/udphttp-proxy.db
+logging:
+  level: info

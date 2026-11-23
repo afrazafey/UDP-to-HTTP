@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ -d /run/systemd/system ]; then
+    case "$1" in
+        remove|deconfigure) deb-systemd-invoke stop udphttp-proxy.service || true ;;
+    esac
+fi

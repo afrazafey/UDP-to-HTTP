@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+if [ "$1" = configure ]; then
+    if ! getent group udphttp-proxy >/dev/null; then
+        addgroup --system udphttp-proxy
+    fi
+    if ! getent passwd udphttp-proxy >/dev/null; then
+        adduser --system --ingroup udphttp-proxy --home /var/lib/udphttp-proxy --no-create-home --shell /usr/sbin/nologin udphttp-proxy
+    fi
+    install -d -m 0700 -o udphttp-proxy -g udphttp-proxy /var/lib/udphttp-proxy
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        deb-systemd-helper enable udphttp-proxy.service >/dev/null || true
+        deb-systemd-invoke restart udphttp-proxy.service || true
+    fi
+fi

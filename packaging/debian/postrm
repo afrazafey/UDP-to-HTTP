@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+if [ "$1" = purge ]; then
+    deb-systemd-helper purge udphttp-proxy.service >/dev/null || true
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi
+# State and the system account are deliberately retained to avoid deleting user data.

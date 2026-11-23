@@ -1,0 +1,17 @@
+.tools/
+node_modules/
+frontend/node_modules/
+frontend/coverage/
+frontend/.npm-cache/
+frontend/*.tsbuildinfo
+internal/web/dist/*
+!internal/web/dist/.keep
+build/
+data/
+.env
+*.db
+*.db-shm
+*.db-wal
+config.local.yaml
+__pycache__/
+*.pyc

@@ -1,0 +1,45 @@
+name: Release
+on:
+  push:
+    tags: ['v[0-9]*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci && npm run typecheck && npm test && npm run build
+        working-directory: frontend
+      - run: test -z "$(gofmt -l cmd internal)" && go vet ./... && go test -race ./...
+      - name: Build release artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=${TAG#v}
+          make linux VERSION="$VERSION"
+          python3 scripts/linux-smoke.py --binary build/udphttp-proxy-linux-amd64
+          for arch in amd64 arm64; do
+            sh scripts/build-deb.sh "$arch" "$VERSION" "build/udphttp-proxy-linux-$arch"
+            stage=$(mktemp -d)
+            install -m 0755 "build/udphttp-proxy-linux-$arch" "$stage/udphttp-proxy"
+            cp README.md ARCHITECTURE.md ROADMAP.md PHASE1_REPORT.md PHASE2_REPORT.md LINUX_TESTING.md "$stage/"
+            cp -R configs deploy "$stage/"
+            tar -czf "build/udphttp-proxy_${VERSION}_linux_${arch}.tar.gz" -C "$stage" .
+            rm -rf -- "$stage"
+          done
+          cd build
+          sha256sum *.deb *.tar.gz > SHA256SUMS
+      - name: Publish downloadable artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" build/*.deb build/*.tar.gz build/SHA256SUMS --verify-tag --title "UDPHTTP $TAG" --notes "Phase 2 streaming engine. See PHASE2_REPORT.md and CI runtime validation results. Legacy Windows compatibility is unverified."

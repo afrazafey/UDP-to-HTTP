@@ -1,0 +1,37 @@
+[Unit]
+Description=UDPHTTP IPTV streaming proxy and local management
+Documentation=file:/usr/share/doc/udphttp-proxy/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=udphttp-proxy
+Group=udphttp-proxy
+WorkingDirectory=/var/lib/udphttp-proxy
+ExecStart=/usr/bin/udphttp-proxy serve --config /etc/udphttp-proxy/config.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+StateDirectory=udphttp-proxy
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/udphttp-proxy
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

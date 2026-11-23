@@ -1,0 +1,26 @@
+# Isolated local generator demo. Loopback input/playback are explicitly authorized.
+management:
+  host: 127.0.0.1
+  port: 8080
+network:
+  http_interface: 127.0.0.1
+  http_port: 7781
+  secondary_http_port: 0
+streaming:
+  allowed_client_networks: ["127.0.0.0/8"]
+  allow_loopback_unicast: true
+  allowed_unicast_sources: ["127.0.0.1"]
+  allowed_multicast_groups: []
+  inactivity_timeout: 5s
+channels:
+  - id: local-demo
+    name: Local MPEG-TS demo
+    source_type: unicast
+    source_address: 127.0.0.1 # Expected sender, not a remote pull URL.
+    source_port: 15000 # Local UDP destination port on the selected interface.
+    interface: 127.0.0.1
+    enabled: true
+    idle_timeout_seconds: 2
+    startup: on_demand
+storage:
+  path: data/phase2-demo.db
