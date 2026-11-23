@@ -6,6 +6,11 @@ management:
   write_timeout: 15s
   idle_timeout: 60s
   shutdown_timeout: 10s
+  # Opt-in same-host Nginx support; see deploy/NGINX.md. Restart required.
+  reverse_proxy:
+    enabled: false
+    trusted_proxies: []
+    trusted_origins: []
 network:
   multicast_interface: ""
   http_interface: 127.0.0.1

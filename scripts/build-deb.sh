@@ -14,6 +14,8 @@ install -m 0755 "$binary" "$stage/usr/bin/udphttp-proxy"
 install -m 0644 "$root/deploy/config.yaml" "$stage/etc/udphttp-proxy/config.yaml"
 install -m 0644 "$root/deploy/udphttp-proxy.service" "$stage/usr/lib/systemd/system/udphttp-proxy.service"
 install -m 0644 "$root/README.md" "$root/ARCHITECTURE.md" "$root/ROADMAP.md" "$root/PHASE1_REPORT.md" "$root/PHASE2_REPORT.md" "$root/PHASE3_AUDIT.md" "$root/PHASE3_REPORT.md" "$root/LINUX_TESTING.md" "$stage/usr/share/doc/udphttp-proxy/"
+mkdir -p "$stage/usr/share/doc/udphttp-proxy/deploy"
+install -m 0644 "$root/deploy/NGINX.md" "$root/deploy/nginx-management.conf" "$stage/usr/share/doc/udphttp-proxy/deploy/"
 for hook in postinst prerm postrm; do
     install -m 0755 "$root/packaging/debian/$hook" "$stage/DEBIAN/$hook"
 done

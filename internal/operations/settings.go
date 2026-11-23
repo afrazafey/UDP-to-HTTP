@@ -128,7 +128,28 @@ func (m *SettingsManager) View(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"settings": r.Desired, "active": FromConfig(m.active), "revision": r.Revision, "accepted_revision": r.AcceptedRevision, "restart_required": restartRequired(r.Desired, FromConfig(m.active)), "last_error": r.LastError, "read_only": map[string]any{"management_binding": net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)), "storage_path": m.base.Storage.Path, "authentication": "trusted local user; remote binding prohibited", "trusted_proxies": []string{}, "forwarded_headers": "ignored", "playback_authorization": "actual-peer CIDR allowlist; bearer tokens unavailable", "recovery_policy": "250ms..30s exponential retry; read-only", "startup_service": "systemd controls process startup; channel startup is individually persisted"}}, nil
+	authentication := "trusted local user; remote binding prohibited"
+	forwarded := "ignored"
+	proxies := []string{}
+	origins := []string{}
+	if m.base.Management.ReverseProxy.Enabled {
+		authentication = "trusted local users; reverse proxy enforces remote authentication and client authorization"
+		forwarded = "single-hop X-Forwarded-Host/Proto/For and optional Port; configured TCP peers and exact origins only"
+		proxies = append(proxies, m.base.Management.ReverseProxy.TrustedProxies...)
+		origins = append(origins, m.base.Management.ReverseProxy.TrustedOrigins...)
+	}
+	return map[string]any{
+		"settings": r.Desired, "active": FromConfig(m.active), "revision": r.Revision,
+		"accepted_revision": r.AcceptedRevision, "restart_required": restartRequired(r.Desired, FromConfig(m.active)), "last_error": r.LastError,
+		"read_only": map[string]any{
+			"management_binding": net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)),
+			"storage_path":       m.base.Storage.Path, "authentication": authentication,
+			"trusted_proxies": proxies, "trusted_origins": origins, "forwarded_headers": forwarded,
+			"playback_authorization": "actual-peer CIDR allowlist; bearer tokens unavailable",
+			"recovery_policy":        "250ms..30s exponential retry; read-only",
+			"startup_service":        "systemd controls process startup; channel startup is individually persisted",
+		},
+	}, nil
 }
 func restartRequired(a, b Settings) bool {
 	a.Dashboard = b.Dashboard

@@ -15,10 +15,13 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/storage"
 )
 
-func operationsService(t *testing.T) *Service {
+func operationsService(t *testing.T, configure ...func(*Service)) *Service {
 	t.Helper()
 	s, engine, _ := streamingService(t)
 	s.options.Config.Streaming.Enabled = false
+	for _, change := range configure {
+		change(s)
+	}
 	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "phase3.db"))
 	if err != nil {
 		t.Fatal(err)

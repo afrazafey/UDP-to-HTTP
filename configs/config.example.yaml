@@ -6,6 +6,11 @@ management:
   write_timeout: 15s
   idle_timeout: 60s
   shutdown_timeout: 10s
+  # Opt-in same-host Nginx support; see deploy/NGINX.md. YAML-only; restart required.
+  reverse_proxy:
+    enabled: false
+    trusted_proxies: [] # TCP peer, e.g. ["127.0.0.1"], never the browser IP.
+    trusted_origins: [] # Exact origins, e.g. ["http://192.168.10.103"].
 
 network:
   multicast_interface: "" # Select a real interface name or local IPv4 address.
