@@ -34,8 +34,10 @@ type Repository interface {
 var secret = regexp.MustCompile(`(?i)(password|token|secret|authorization|cookie|credential|signature|signed)`)
 var assignment = regexp.MustCompile(`(?i)(password|token|secret|authorization|cookie|credential|signature)([=: ]+)([^\s,&]+)`)
 var links = regexp.MustCompile(`https?://[^\s]+`)
+var bearer = regexp.MustCompile(`(?i)Bearer\s+[^\s,;]+`)
 
 func Redact(value string) string {
+	value = bearer.ReplaceAllString(value, "Bearer [redacted]")
 	value = links.ReplaceAllStringFunc(value, func(s string) string {
 		u, e := url.Parse(s)
 		if e != nil {
@@ -59,6 +61,8 @@ type Sink struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	done        chan struct{}
+	stop        chan struct{}
+	closed      atomic.Bool
 	once        sync.Once
 	count, days atomic.Int64
 	Dropped     atomic.Uint64
@@ -66,7 +70,7 @@ type Sink struct {
 
 func NewSink(repo Repository, count, days int) *Sink {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Sink{repo: repo, queue: make(chan Entry, 256), ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	s := &Sink{repo: repo, queue: make(chan Entry, 256), ctx: ctx, cancel: cancel, done: make(chan struct{}), stop: make(chan struct{})}
 	s.SetRetention(count, days)
 	go s.run()
 	return s
@@ -74,20 +78,50 @@ func NewSink(repo Repository, count, days int) *Sink {
 func (s *Sink) SetRetention(count, days int) { s.count.Store(int64(count)); s.days.Store(int64(days)) }
 func (s *Sink) run() {
 	defer close(s.done)
+	write := func(e Entry) {
+		ctx, cancel := context.WithTimeout(s.ctx, 500*time.Millisecond)
+		defer cancel()
+		if err := s.repo.AppendEvent(ctx, e, int(s.count.Load()), int(s.days.Load())); err != nil {
+			s.Dropped.Add(1)
+		}
+	}
 	for {
 		select {
 		case <-s.ctx.Done():
+			s.Dropped.Add(uint64(len(s.queue)))
 			return
-		case e := <-s.queue:
-			ctx, cancel := context.WithTimeout(s.ctx, 500*time.Millisecond)
-			if err := s.repo.AppendEvent(ctx, e, int(s.count.Load()), int(s.days.Load())); err != nil {
-				s.Dropped.Add(1)
+		case <-s.stop:
+			for {
+				select {
+				case <-s.ctx.Done():
+					s.Dropped.Add(uint64(len(s.queue)))
+					return
+				case e := <-s.queue:
+					write(e)
+				default:
+					return
+				}
 			}
-			cancel()
+		case e := <-s.queue:
+			write(e)
 		}
 	}
 }
-func (s *Sink) Close() { s.once.Do(func() { s.cancel(); <-s.done }) }
+func (s *Sink) Close() {
+	s.once.Do(func() {
+		s.closed.Store(true)
+		close(s.stop)
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-s.done:
+		case <-timer.C:
+			s.cancel()
+			<-s.done
+		}
+		s.cancel()
+	})
+}
 
 type Handler struct {
 	next  slog.Handler
@@ -140,10 +174,14 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		add(a)
 	}
 	r.Attrs(func(a slog.Attr) bool { add(a); return true })
-	select {
-	case h.sink.queue <- e:
-	default:
+	if h.sink.closed.Load() {
 		h.sink.Dropped.Add(1)
+	} else {
+		select {
+		case h.sink.queue <- e:
+		default:
+			h.sink.Dropped.Add(1)
+		}
 	}
 	return h.next.Handle(ctx, clean)
 }

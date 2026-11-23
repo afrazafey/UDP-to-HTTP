@@ -331,3 +331,32 @@ func TestResolvedReceiverReservation(t *testing.T) {
 		t.Fatal("receiver reservation leaked")
 	}
 }
+func TestClientMeasurementsAndDisconnect(t *testing.T) {
+	m, c := testManager(t)
+	sub, err := m.Subscribe(c.ID, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	sub.RecordOutput(1880)
+	clients := m.Clients()
+	if len(clients) != 1 || clients[0].BytesDelivered != 1880 || clients[0].OutputBitrate <= 0 || clients[0].DurationSeconds < 0 {
+		t.Fatal("invalid client measurements", clients)
+	}
+	if err = m.Disconnect(clients[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sub.Done():
+	default:
+		t.Fatal("disconnect did not close subscription")
+	}
+	clients = m.Clients()
+	if len(clients) != 1 || !clients[0].Closing {
+		t.Fatal("closing state not exposed", clients)
+	}
+	sub.Close()
+	if len(m.Clients()) != 0 {
+		t.Fatal("client slot not released")
+	}
+}

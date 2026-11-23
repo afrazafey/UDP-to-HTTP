@@ -65,7 +65,7 @@ func New(o Options) *Service {
 	if o.Discover == nil {
 		o.Discover = network.Discover
 	}
-	s := &Service{options: o, started: time.Now().UTC(), csrf: rand.Text()}
+	s := &Service{options: o, started: buildinfo.StartedAt, csrf: rand.Text()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/v1/status", s.status)
@@ -154,6 +154,11 @@ func (s *Service) protect(next http.Handler) http.Handler {
 					writeJSON(w, 415, map[string]string{"error": "Content-Type must be application/json"})
 					return
 				}
+				if r.ContentLength > 1<<20 {
+					writeJSON(w, 413, map[string]string{"error": "Management request exceeds 1 MiB"})
+					return
+				}
+				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 				s.writeMu.Lock()
 				if time.Since(s.writeWindow) >= time.Minute {
 					s.writeWindow = time.Now()

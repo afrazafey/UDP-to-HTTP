@@ -16,6 +16,7 @@ import (
 )
 
 var ErrRevision = errors.New("settings revision changed; reload before saving")
+var ErrPersistence = errors.New("settings storage failed")
 
 type Timeouts struct {
 	Read     config.Duration `json:"read_timeout"`
@@ -87,6 +88,15 @@ func (m *SettingsManager) Startup(ctx context.Context, ignore bool) (config.Conf
 		_, _ = m.repo.RollbackServerSettings(ctx, "Stored settings failed validation; restored accepted revision")
 		return r.Accepted.Apply(m.base), nil
 	}
+	channels, e := m.repo.ListChannels(ctx)
+	if e != nil {
+		return m.base, e
+	}
+	if len(channels) > candidate.Streaming.MaxStreams {
+		_, _ = m.repo.RollbackServerSettings(ctx, "Staged max_streams is below the current channel count; restored accepted settings")
+		return r.Accepted.Apply(m.base), nil
+	}
+	candidate.Channels = m.base.Channels
 	return candidate, nil
 }
 func (m *SettingsManager) Accepted(ctx context.Context) (config.Config, error) {
@@ -131,9 +141,15 @@ func (m *SettingsManager) Validate(ctx context.Context, s Settings) ([]string, e
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	if !restartRequired(s, FromConfig(m.Active())) {
+		return []string{"Only dashboard/logging preferences change; applied live after confirmation."}, nil
+	}
 	channels, err := m.repo.ListChannels(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
+	if len(channels) > c.Streaming.MaxStreams {
+		return nil, errors.New("max_streams cannot be below the existing channel count")
 	}
 	for _, channel := range channels {
 		v := channel.Defaults(c.Streaming.MaxClients, c.Streaming.ClientBufferBytes, c.Streaming.UDPReceiveBuffer)
@@ -157,6 +173,9 @@ func (m *SettingsManager) Save(ctx context.Context, revision int64, s Settings) 
 	defer m.mu.Unlock()
 	r, err := m.repo.WriteServerSettings(ctx, revision, s)
 	if err != nil {
+		if !errors.Is(err, ErrRevision) {
+			err = fmt.Errorf("%w: %v", ErrPersistence, err)
+		}
 		return r, err
 	}
 	m.active.Dashboard = s.Dashboard
@@ -166,9 +185,16 @@ func (m *SettingsManager) Save(ctx context.Context, revision int64, s Settings) 
 	}
 	return r, nil
 }
-func (m *SettingsManager) Rollback(ctx context.Context) (Record, error) {
+func (m *SettingsManager) Rollback(ctx context.Context, revision int64) (Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	current, err := m.repo.ReadServerSettings(ctx)
+	if err != nil {
+		return Record{}, err
+	}
+	if current.Revision != revision {
+		return Record{}, ErrRevision
+	}
 	r, err := m.repo.RollbackServerSettings(ctx, "")
 	if err == nil {
 		m.active.Dashboard = r.Desired.Dashboard

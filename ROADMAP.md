@@ -1,40 +1,31 @@
 # Roadmap
 
-## Phase 1 — foundation retained
+## Phases 1 and 2 — retained
 
-- [x] CLI, strict typed YAML/environment config, interface discovery.
-- [x] Loopback management, health/status, structured logs, graceful shutdown.
-- [x] SQLite/settings infrastructure, embedded React dashboard, themes.
-- [x] systemd/Debian scaffolding, CI/release workflows, documentation.
+CLI/config/discovery/SQLite/embedded UI/systemd/package infrastructure and the shared UDP/MPEG-TS playback engine remain. Historical reports record their actual validation limits; their source and original tests are retained.
 
-The historical PHASE1_REPORT.md records that phase's verification limits.
+## Phase 3 — management operations implementation
 
-## Phase 2 — streaming implementation
+- [x] Mandatory repository audit and actual route/model inventory.
+- [x] Modular professional dashboard, light/dark/system themes, collapsible/mobile/keyboard navigation.
+- [x] Reusable accessible dialogs, forms, loading/empty/error/stale states and confirmed notifications.
+- [x] Overview summaries, actual activity/health and bounded historical throughput charts.
+- [x] Search/sort/type/state filters, pagination/mobile stream rows, CRUD/actions/details/log links.
+- [x] Stream details, measured transport counters/history and honest external-player preview fallback.
+- [x] Real interface/MAC/IPv4/capability discovery and staged network settings with preview/confirmation.
+- [x] Revisioned settings persistence, active/desired state, startup rollback and recovery override.
+- [x] Client duration/bytes/rate/state and safe confirmed disconnection.
+- [x] Runtime/CPU/RSS monitoring where supported, pause/manual refresh and persisted interval.
+- [x] Bounded sanitized event store, filters/pagination/copy and diagnostic export.
+- [x] General/Streaming/HTTP/Security/Logging settings with explicit read-only capabilities.
+- [x] Real system/listener/config path/process metadata.
+- [x] Additive schema v3, regression/new tests, development builds, packaging/CI/documentation.
+- [ ] Complete all local Go/race executions currently blocked by Application Control/missing GCC.
+- [ ] Execute Ubuntu CI/native Linux acceptance, including multicast, occupied-port rollback, systemd and packages.
+- [ ] Perform actual browser visual/accessibility review and real IPTV/codec validation.
 
-- [x] Allowlisted IPv4 multicast/unicast, explicit interface selection and source filtering.
-- [x] Multicast destination/interface checks, join/leave and receive-buffer requests.
-- [x] MPEG-TS synchronization across datagrams, 188-byte forwarding, corruption and CC monitoring.
-- [x] One receiver per normalized source, shared viewers, duplicate-source rejection.
-- [x] Client caps, bounded queues, slow-viewer isolation and idle cleanup.
-- [x] Lifecycle states, inactivity detection, bounded retries, interface disappearance recovery.
-- [x] Separate playback listeners/ports and CIDR policy, `/live/` and configured-source `/udp/` routes.
-- [x] Additive SQLite migration, persistent channel CRUD and one-time YAML seeds.
-- [x] Secure local management writes with CSRF tokens and strict JSON.
-- [x] Dashboard channel/client/status/traffic/error views and real lifecycle actions.
-- [x] Synthetic transport tests, local generator, Linux acceptance script and CI gates.
-- [x] README, architecture, Linux testing instructions and Phase 2 report.
-- [ ] Complete final Go/race/SQLite/HTTP suite execution where Windows Application Control blocks launches.
-- [ ] Run native Linux socket, multicast, HTTP, systemd, graceful-shutdown and upgrade validation in CI.
-- [ ] Record measured Linux resource use and hardware load behavior.
+No production readiness is claimed until acceptance gates pass. Remote administration stays prohibited, with trusted local users and CSRF as the management boundary. Unavailable sessions/accounts/trusted forwarding/playback tokens are labeled read-only rather than exposed without implementation.
 
-Implementation checkboxes do not claim runtime acceptance or production readiness. Linux validation remains pending by the user's selected validation plan. Legacy Windows compatibility remains unverified.
+## Phase 4 — not started
 
-## Phase 3 — not started
-
-- Authenticated remote administration, password hashing, session/CSRF lifecycle, throttling and transport security.
-- Account bootstrap, audit history and server policy editing/reload.
-- Bounded journal viewing, optional rotated file logging.
-- Backup/restore tooling, package signing, dependency/license inventory.
-- Hardware/ARM64 native runtime tests and sustained production acceptance.
-
-Await explicit approval before beginning Phase 3. Close the Phase 2 validation gaps before claiming production readiness.
+Await explicit review/approval before additional work. Potential future scope includes authenticated/TLS remote administration, account/session policy, signed playback authorization/trusted proxy configuration, immutable audit guarantees, file/journal integration, backup/restore/signing and sustained hardware acceptance. No such feature is silently enabled by Phase 3.

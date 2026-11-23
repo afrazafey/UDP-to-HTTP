@@ -93,8 +93,25 @@ with tempfile.TemporaryDirectory(prefix='udphttp-linux-') as directory:
         generator = None
         try:
             eventually(lambda: api('/health')['storage_ready'])
-            assert api('/api/v1/status')['phase'] == 2
+            phase = api('/api/v1/status')['phase']
+            assert phase >= 2
             token = api('/api/v1/csrf')['token']
+            if phase >= 3:
+                assert api('/api/v1/system')['os'] == 'linux'
+                assert api('/api/v1/dashboard')['summary']['total'] == 1
+                settings = api('/api/v1/settings')
+                proposal = settings['settings']
+                proposal['dashboard']['name'] = 'Linux acceptance fixture'
+                assert api('/api/v1/settings/validate', 'POST', {'revision': settings['revision'], 'settings': proposal}, token)['valid']
+                saved = api('/api/v1/settings', 'PUT', {'revision': settings['revision'], 'settings': proposal, 'confirm': True}, token)
+                assert saved['active']['dashboard']['name'] == 'Linux acceptance fixture'
+                invalid = json.loads(json.dumps(proposal))
+                invalid['network']['http_port'] = management
+                try:
+                    api('/api/v1/settings', 'PUT', {'revision': saved['revision'], 'settings': invalid, 'confirm': True}, token)
+                    raise AssertionError('invalid listener configuration accepted')
+                except urllib.error.HTTPError as failure:
+                    assert failure.code == 400
             generator = threading.Thread(target=generate)
             generator.start()
             eventually(lambda: api('/api/v1/streams/smoke')['stream']['state'] == 'running')
@@ -128,6 +145,29 @@ with tempfile.TemporaryDirectory(prefix='udphttp-linux-') as directory:
             token = api('/api/v1/csrf')['token']
             assert api('/api/v1/streams/persisted')['stream']['channel']['name'] == extra['name']
             api('/api/v1/streams/persisted', 'DELETE', token=token)
+            if phase >= 3:
+                assert api('/api/v1/settings')['active']['dashboard']['name'] == 'Linux acceptance fixture'
+                settings = api('/api/v1/settings')
+                proposal = settings['settings']
+                candidate_port = free_port(socket.SOCK_STREAM)
+                while candidate_port in {management, primary, secondary}:
+                    candidate_port = free_port(socket.SOCK_STREAM)
+                proposal['network']['http_port'] = candidate_port
+                saved = api('/api/v1/settings', 'PUT', {'revision': settings['revision'], 'settings': proposal, 'confirm': True}, token)
+                assert saved['restart_required'] and saved['active']['network']['http_port'] == primary
+                # Occupy the newly staged port after preflight to prove startup rollback.
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
+                    blocker.bind(('127.0.0.1', candidate_port))
+                    blocker.listen(1)
+                    process.send_signal(signal.SIGTERM)
+                    assert process.wait(timeout=5) == 0
+                    process = subprocess.Popen([str(binary), 'serve', '--config', str(config_path)], stdout=subprocess.DEVNULL, stderr=logs)
+                    eventually(lambda: api('/health')['storage_ready'])
+                    recovered = api('/api/v1/settings')
+                    assert recovered['active']['network']['http_port'] == primary
+                    assert recovered['last_error']
+                    assert watch(primary) > 0
+                eventually(lambda: api('/api/v1/logs?search=settings')['total'] > 0)
             process.send_signal(signal.SIGTERM)
             assert process.wait(timeout=5) == 0
             usage = resource.getrusage(resource.RUSAGE_CHILDREN)

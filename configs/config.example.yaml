@@ -38,3 +38,11 @@ storage:
   path: data/udphttp-proxy.db
 logging:
   level: info
+  retention_count: 2000
+  retention_days: 7
+dashboard:
+  name: UDPHTTP Proxy
+  theme: system
+  refresh_seconds: 5
+  default_startup: on_demand
+  default_idle_seconds: 5

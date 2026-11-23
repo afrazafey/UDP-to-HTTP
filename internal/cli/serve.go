@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/buildinfo"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
@@ -45,10 +46,10 @@ func configurationPath(args []string, getenv func(string) string) string {
 		path = getenv("UDPHTTP_CONFIG")
 	}
 	for i, arg := range args {
-		if strings.HasPrefix(arg, "--config=") {
-			path = strings.TrimPrefix(arg, "--config=")
+		if strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-config=") {
+			path = strings.SplitN(arg, "=", 2)[1]
 		}
-		if arg == "--config" && i+1 < len(args) {
+		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
 			path = args[i+1]
 		}
 	}
@@ -92,6 +93,11 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 		_ = value.UnmarshalText([]byte(l.Level))
 		level.Set(value)
 		sink.SetRetention(l.RetentionCount, l.RetentionDays)
+		pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer pruneCancel()
+		if e := store.PruneEvents(pruneCtx, l.RetentionCount, l.RetentionDays); e != nil {
+			logger.Error("operational retention update failed", "component", "logging", "error", e)
+		}
 	}
 	if err = store.SeedChannels(ctx, base.Channels); err != nil {
 		return err
@@ -111,6 +117,7 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 	playback, bindErr := bindPlayback(ctx, cfg)
 	accept := !ignore
 	if bindErr != nil {
+		accept = false
 		logger.Error("requested playback configuration failed; restoring accepted settings", "component", "configuration", "error", bindErr)
 		statuses = append(statuses, httpapi.ListenerStatus{Kind: "playback", Address: "requested configuration", State: "failed", Error: events.Redact(bindErr.Error())})
 		if !ignore {

@@ -11,6 +11,13 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/operations"
 )
 
+const eventTimeLayout = "2006-01-02T15:04:05.000000000Z"
+
+func (s *Store) PruneEvents(ctx context.Context, count, days int) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operational_events WHERE id NOT IN (SELECT id FROM operational_events ORDER BY id DESC LIMIT ?) OR time < ?`, count, time.Now().UTC().AddDate(0, 0, -days).Format(eventTimeLayout))
+	return err
+}
+
 func (s *Store) InitServerSettings(ctx context.Context, value operations.Settings) error {
 	data := operations.Encode(value)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO server_settings(id,revision,accepted_revision,desired,accepted) VALUES(1,0,0,?,?) ON CONFLICT(id) DO UPDATE SET desired=CASE WHEN revision=0 THEN excluded.desired ELSE desired END,accepted=CASE WHEN revision=0 THEN excluded.accepted ELSE accepted END`, data, data)
@@ -44,7 +51,7 @@ func (s *Store) WriteServerSettings(ctx context.Context, revision int64, value o
 	return s.ReadServerSettings(ctx)
 }
 func (s *Store) AcceptServerSettings(ctx context.Context, revision int64) error {
-	result, err := s.db.ExecContext(ctx, "UPDATE server_settings SET accepted=desired,accepted_revision=revision,last_error='' WHERE id=1 AND revision=?", revision)
+	result, err := s.db.ExecContext(ctx, "UPDATE server_settings SET accepted=desired,accepted_revision=revision WHERE id=1 AND revision=?", revision)
 	if err != nil {
 		return err
 	}
@@ -71,10 +78,10 @@ func (s *Store) AppendEvent(ctx context.Context, e events.Entry, count, days int
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "INSERT INTO operational_events(time,level,component,stream_id,message,context) VALUES(?,?,?,?,?,?)", e.Time.UTC().Format(time.RFC3339Nano), e.Level, e.Component, e.StreamID, e.Message, string(data)); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO operational_events(time,level,component,stream_id,message,context) VALUES(?,?,?,?,?,?)", e.Time.UTC().Format(eventTimeLayout), e.Level, e.Component, e.StreamID, e.Message, string(data)); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM operational_events WHERE id NOT IN (SELECT id FROM operational_events ORDER BY id DESC LIMIT ?) OR time < ?`, count, time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339Nano)); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM operational_events WHERE id NOT IN (SELECT id FROM operational_events ORDER BY id DESC LIMIT ?) OR time < ?`, count, time.Now().UTC().AddDate(0, 0, -days).Format(eventTimeLayout)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -96,11 +103,11 @@ func (s *Store) QueryEvents(ctx context.Context, f events.Filter) ([]events.Entr
 	}
 	if !f.Since.IsZero() {
 		clauses = append(clauses, "time>=?")
-		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, f.Since.UTC().Format(eventTimeLayout))
 	}
 	if !f.Until.IsZero() {
 		clauses = append(clauses, "time<=?")
-		args = append(args, f.Until.UTC().Format(time.RFC3339Nano))
+		args = append(args, f.Until.UTC().Format(eventTimeLayout))
 	}
 	where := strings.Join(clauses, " AND ")
 	var total int

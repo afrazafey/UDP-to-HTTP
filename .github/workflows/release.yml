@@ -31,7 +31,7 @@ jobs:
             sh scripts/build-deb.sh "$arch" "$VERSION" "build/udphttp-proxy-linux-$arch"
             stage=$(mktemp -d)
             install -m 0755 "build/udphttp-proxy-linux-$arch" "$stage/udphttp-proxy"
-            cp README.md ARCHITECTURE.md ROADMAP.md PHASE1_REPORT.md PHASE2_REPORT.md LINUX_TESTING.md "$stage/"
+            cp README.md ARCHITECTURE.md ROADMAP.md PHASE1_REPORT.md PHASE2_REPORT.md PHASE3_AUDIT.md PHASE3_REPORT.md LINUX_TESTING.md "$stage/"
             cp -R configs deploy "$stage/"
             tar -czf "build/udphttp-proxy_${VERSION}_linux_${arch}.tar.gz" -C "$stage" .
             rm -rf -- "$stage"
@@ -42,4 +42,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" build/*.deb build/*.tar.gz build/SHA256SUMS --verify-tag --title "UDPHTTP $TAG" --notes "Phase 2 streaming engine. See PHASE2_REPORT.md and CI runtime validation results. Legacy Windows compatibility is unverified."
+        run: gh release create "$TAG" build/*.deb build/*.tar.gz build/SHA256SUMS --verify-tag --prerelease --title "UDPHTTP $TAG (development)" --notes "Phase 3 development build. See PHASE3_REPORT.md and CI runtime validation results. Linux acceptance and real IPTV playback require deployment validation."

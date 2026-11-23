@@ -1,11 +1,27 @@
 # Architecture
 
+## Phase 3 operations layer
+
+The repository audit in PHASE3_AUDIT.md was completed before implementation. The streaming engine is retained. Additive snapshots expose worker start time, client duration/delivered bytes/lifetime bitrate, receiver count and safe client disconnect. Existing routes remain compatible; hash navigation requires no server fallback that could intercept API or playback paths.
+
+`internal/operations` depends on typed config, network discovery and the stream manager, with narrow repository interfaces. It does not import storage. `internal/storage` implements those interfaces. Schema v3 adds singleton revisioned server settings and bounded operational events, preserving v1 settings/v2 channels. Conditional revision updates prevent lost saves; settings rollback checks revisions under the same operations lock. JSON durations round-trip as strings.
+
+Settings separate desired from active and last accepted startup state. General/logging fields apply live; network/streaming/timeouts are staged. Validation checks current channels, listener collisions, literal ranges/interfaces and practical bind probes. Startup rechecks channel count and actual sockets; bad staged binds restore accepted settings. If even accepted playback cannot bind, local management remains running with playback disabled and explicit listener failure metadata. Management bind/port and storage location cannot be changed by the API. Recovery mode ignores persisted settings without deleting the DB. Rollback intentionally restores the complete last accepted startup snapshot, including UI/logging fields changed since then. There is no generic process-control or host-network mutation API.
+
+The monitor samples every 3 seconds. It retains 240 aggregate samples and 120 samples per currently configured channel, removing obsolete keys. Go runtime metrics are real; Linux getrusage deltas and /proc resident pages provide CPU/RSS. Other systems report null. CPU percent uses 100% per core. No metric history is written to SQLite. Summaries distinguish running/stopped/unhealthy/waiting and include measured continuity/discontinuity indicators, not invented packet loss.
+
+The slog wrapper redacts recognized sensitive keys, query/user info in URLs and bearer/assignment patterns before JSON output or capture. A bounded 256-entry queue avoids blocking receiver state locks on SQLite writes. One worker inserts/prunes events with deadlines; count/age limits and capped queries bound retention. Drop counts expose overload/storage failures. Shutdown drains best-effort for two seconds, then cancels pending writes. This is filtered operational history, not a guaranteed immutable audit ledger; full journald access/file logging remain unavailable.
+
+All new APIs inherit loopback peer/Host/Origin checks. Mutations additionally require the random CSRF token, strict 1 MiB JSON, exact content type, confirmation for settings and rate limits (60 writes/minute). No remote accounts/session/authentication boundary is invented; remote binding is prohibited. Trusted proxy headers remain ignored. Diagnostic exports use the same local authorization and sanitized stored events, never private config or raw request credentials.
+
+The React shell uses hash routes, reusable fields/dialogs/toasts/status/empty/error/skeleton components, a native SVG historical chart and shared typed API/polling logic. Native charting avoids another framework dependency. Polling has cancellation, overlap prevention, pause/manual refresh and stale markers. Forms preserve drafts on rejection and defer success until confirmed. The old UI remains as an older-daemon fallback and regression target. Browser MPEG-TS capability is inspected, but external-player copying is the supported unvalidated-preview fallback. No screenshots or visual QA are claimed without an actual rendered browser capture.
+
 ## Components and boundaries
 
 ```mermaid
 flowchart LR
   CLI[CLI / signal context] --> Config[Strict YAML server policy]
-  CLI --> DB[(SQLite v2)]
+  CLI --> DB[(SQLite v3)]
   CLI --> Manager[Shared stream manager]
   CLI --> Admin[Loopback management listener]
   CLI --> Playback[Separate playback listeners / CIDR policy]
@@ -22,7 +38,7 @@ Phase 1 CLI, network discovery, storage/settings, JSON logging and embedded UI r
 
 ## Configuration and storage
 
-Server-wide YAML/environment policy remains authoritative. Channel definitions become SQLite-authoritative after a one-time YAML seed. Additive schema v2 creates `channels(id, configuration, updated_at)` with JSON validity checks while preserving schema v1 settings and the startup snapshot. Seed import and its marker commit atomically. Deletes are not resurrected on restart. Parameterized INSERT/UPDATE/DELETE operations persist a definition before runtime replacement, so a failed write preserves the running channel. Unsupported future schemas are rejected.
+YAML/environment bootstrap remains authoritative until the first Phase 3 settings save. Persisted server settings then provide the writable subset; management binding, database location and seeds remain bootstrap-only. Channel definitions become SQLite-authoritative after a one-time YAML seed. Additive schema v2 creates `channels(id, configuration, updated_at)` with JSON validity checks while preserving schema v1 settings and the startup snapshot. Seed import and its marker commit atomically. Deletes are not resurrected on restart. Parameterized INSERT/UPDATE/DELETE operations persist a definition before runtime replacement, so a failed write preserves the running channel. Unsupported future schemas are rejected.
 
 Channel configuration includes ID/name, multicast/unicast type, literal address, UDP destination port, explicit interface selection, enabled state, idle retention, caps, buffer requests and startup policy. Bounds and allowlists are enforced in the engine as well as YAML validation. Management creates/updates also resolve actual host interfaces. A stored interface that later disappears produces retrying state; policy-invalid stored channels remain visible in error state without opening sockets. Duplicate normalized sources, or unicast bind collisions, are rejected.
 
@@ -79,7 +95,7 @@ Playback waits for a valid TS chunk before sending 200/video/mp2t. Startup timeo
 
 ## Frontend and packaging
 
-The existing React navigation/layout/theme/interface views remain. Streaming.tsx adds measured snapshots, clients, counters/errors, channel forms, lifecycle actions, and actual URL copying. Fetches have deadlines, polling does not overlap, unmount aborts reads, and failures visibly mark stale data. Channel mutations fetch a current token and report backend validation errors. Server settings stay read-only. No fabricated stream/resource data is used.
+The existing React navigation/layout/theme/interface views remain. Streaming.tsx adds measured snapshots, clients, counters/errors, channel forms, lifecycle actions, and actual URL copying. Fetches have deadlines, polling does not overlap, unmount aborts reads, and failures visibly mark stale data. Channel mutations fetch a current token and report backend validation errors. Phase 3 adds validated, revision-checked server settings; management binding/storage paths and unsupported security policies remain read-only. No fabricated stream/resource data is used.
 
 Vite output is embedded by Go; frontend builds must finish before Go checks/builds read those assets. Production needs no Node/CDN. systemd keeps least privilege and separate local management/playback policies. dpkg preserves config; schema migrations preserve state. CI includes native Linux tests, race tests, architecture builds, multicast tests where interfaces permit, synthetic four-viewer/two-listener acceptance testing, persistence/restart/SIGTERM checks and package lifecycle checks. These definitions are not evidence they have run: see PHASE2_REPORT.md and LINUX_TESTING.md.
 

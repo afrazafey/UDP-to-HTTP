@@ -27,7 +27,7 @@ func (s *Service) operationsDashboard(w http.ResponseWriter, r *http.Request) {
 	sample, history, summary := s.options.Monitor.View()
 	recent := []events.Entry{}
 	if s.options.Events != nil {
-		items, _, err := s.options.Events.QueryEvents(r.Context(), events.Filter{Limit: 8})
+		items, _, err := s.options.Events.QueryEvents(r.Context(), s.retainedFilter(events.Filter{Limit: 8}))
 		if err != nil {
 			writeJSON(w, 503, map[string]string{"error": "Activity history is unavailable"})
 			return
@@ -126,20 +126,16 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "PUT" && r.URL.Path == "/api/v1/settings" {
 		_, err = m.Save(r.Context(), body.Revision, body.Settings)
 	} else if r.Method == "POST" && r.URL.Path == "/api/v1/settings/rollback" {
-		view, e := m.View(r.Context())
-		if e != nil {
-			err = e
-		} else if view["revision"].(int64) != body.Revision {
-			err = operations.ErrRevision
-		} else {
-			_, err = m.Rollback(r.Context())
-		}
+		_, err = m.Rollback(r.Context(), body.Revision)
 	} else {
 		writeJSON(w, 405, map[string]string{"error": "Unsupported settings method"})
 		return
 	}
 	if err != nil {
-		if errors.Is(err, operations.ErrRevision) {
+		if errors.Is(err, operations.ErrPersistence) {
+			s.options.Logger.Error("settings persistence failed", "component", "configuration", "error", err)
+			writeJSON(w, 500, map[string]string{"error": "Settings storage could not confirm the save; reload the current revision before retrying"})
+		} else if errors.Is(err, operations.ErrRevision) {
 			writeJSON(w, 409, map[string]string{"error": err.Error()})
 		} else {
 			streamError(w, err)
@@ -232,6 +228,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		streamError(w, err)
 		return
 	}
+	filter = s.retainedFilter(filter)
 	items, total, err := s.options.Events.QueryEvents(r.Context(), filter)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "Log storage unavailable"})
@@ -249,4 +246,17 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"logs": items, "total": total, "limit": filter.Limit, "offset": filter.Offset})
+}
+func (s *Service) retainedFilter(f events.Filter) events.Filter {
+	days := s.options.Config.Logging.RetentionDays
+	if s.options.Settings != nil {
+		days = s.options.Settings.Active().Logging.RetentionDays
+	}
+	if days > 0 {
+		oldest := time.Now().UTC().AddDate(0, 0, -days)
+		if f.Since.IsZero() || f.Since.Before(oldest) {
+			f.Since = oldest
+		}
+	}
+	return f
 }
