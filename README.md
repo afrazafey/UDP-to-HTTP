@@ -20,7 +20,7 @@ go run ./cmd/udphttp-proxy serve --config configs/config.example.yaml
 
 Management: **http://127.0.0.1:8080**. Default playback: **127.0.0.1:7781/7782**. Empty default source/client allowlists deny playback and create no channel receivers. `version`, `interfaces`, and `config validate` remain supported. An explicit missing config is an error; no path uses safe development defaults. Stop with Ctrl+C/SIGTERM.
 
-The frontend is embedded; the installed binary needs no Node/CDN. Without built assets, `/` returns an explanatory 503 while APIs remain available. For Vite development, run the daemon separately, then `cd frontend && npm run dev` and open `http://127.0.0.1:5173`. The loopback-only proxy targets management port 8080 and rewrites development Origin headers only. Production is same-origin.
+The frontend is embedded; the installed binary needs no Node/CDN. Without built assets, `/` returns an explanatory 503 while APIs remain available. For Vite development, run the daemon separately, then `cd frontend && npm run dev` and open `http://127.0.0.1:5173`. The loopback-only development API proxy targets management port 8080 and removes development Origin/Referer/fetch-site headers. Production is same-origin and preserves these security headers through Nginx.
 
 From a downloaded Linux bundle: `./udphttp-proxy serve --config configs/config.example.yaml`. Use the source ZIP to build packages. All local bundles are development builds.
 
@@ -94,7 +94,7 @@ A wildcard playback bind uses a local URL for copying; choose a reachable explic
 
 ## Management API and security
 
-Management is literal IPv4 loopback-only, with direct-peer, Host/port, Origin and cross-site checks; forwarded IPs never grant access. This is a **trusted local-user boundary**, not an account/session authentication system. No remote management bind is permitted. Do not expose it via a public proxy. Playback has independent actual-peer CIDRs and no administration routes; empty CIDRs deny all, even localhost.
+Management is literal IPv4 loopback-only, with direct-peer, Host/port, Origin/Referer and cross-site checks; forwarded IPs never grant access. This is a **trusted local-user boundary**, not an account/session authentication system. No remote management bind is permitted. Optional same-host reverse-proxy support is disabled by default and requires explicit trusted TCP peers and exact external origins. The proxy must enforce authentication and client authorization on every route; see [Ubuntu/Nginx deployment instructions](deploy/NGINX.md) and the [Nginx example](deploy/nginx-management.conf). Playback has independent actual-peer CIDRs and no administration routes; empty CIDRs deny all, even localhost.
 
 Writes require a random per-process token from GET /api/v1/csrf, `X-CSRF-Token`, exact application/json, and strict bounded bodies. No permissive CORS; successful mutations are limited to 60/minute per daemon. Secrets in recognized sensitive keys, credentialed/query URLs and bearer/assignment patterns are redacted before JSON output/event retention. The application never logs playback request credentials or complete configuration bodies.
 

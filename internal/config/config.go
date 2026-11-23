@@ -64,12 +64,18 @@ type Dashboard struct {
 	DefaultIdleSeconds int    `yaml:"default_idle_seconds" json:"default_idle_seconds"`
 }
 type Management struct {
-	Host            string   `yaml:"host" json:"host"`
-	Port            int      `yaml:"port" json:"port"`
-	ReadTimeout     Duration `yaml:"read_timeout" json:"read_timeout"`
-	WriteTimeout    Duration `yaml:"write_timeout" json:"write_timeout"`
-	IdleTimeout     Duration `yaml:"idle_timeout" json:"idle_timeout"`
-	ShutdownTimeout Duration `yaml:"shutdown_timeout" json:"shutdown_timeout"`
+	Host            string                 `yaml:"host" json:"host"`
+	Port            int                    `yaml:"port" json:"port"`
+	ReadTimeout     Duration               `yaml:"read_timeout" json:"read_timeout"`
+	WriteTimeout    Duration               `yaml:"write_timeout" json:"write_timeout"`
+	IdleTimeout     Duration               `yaml:"idle_timeout" json:"idle_timeout"`
+	ShutdownTimeout Duration               `yaml:"shutdown_timeout" json:"shutdown_timeout"`
+	ReverseProxy    ManagementReverseProxy `yaml:"reverse_proxy" json:"reverse_proxy"`
+}
+type ManagementReverseProxy struct {
+	Enabled        bool     `yaml:"enabled" json:"enabled"`
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
+	TrustedOrigins []string `yaml:"trusted_origins" json:"trusted_origins"`
 }
 type Network struct {
 	MulticastInterface string   `yaml:"multicast_interface" json:"multicast_interface"`
@@ -106,7 +112,7 @@ type Logging struct {
 
 func Default() Config {
 	return Config{
-		Management: Management{"127.0.0.1", 8080, Duration(10 * time.Second), Duration(15 * time.Second), Duration(60 * time.Second), Duration(10 * time.Second)},
+		Management: Management{Host: "127.0.0.1", Port: 8080, ReadTimeout: Duration(10 * time.Second), WriteTimeout: Duration(15 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(10 * time.Second), ReverseProxy: ManagementReverseProxy{TrustedProxies: []string{}, TrustedOrigins: []string{}}},
 		Network:    Network{HTTPInterface: "127.0.0.1", HTTPPort: 7781, SecondaryHTTPPort: 7782},
 		Streaming:  Streaming{Enabled: true, UDPReceiveBuffer: 4 << 20, StreamBuffer: 8 << 20, MaxClients: 100, ConnectTimeout: Duration(10 * time.Second), AllowedClientNetworks: []string{}, AllowedMulticastGroups: []string{}, AllowedUnicastSources: []string{}, BlockedMulticastNetworks: []string{"224.0.0.0/24"}, MaxStreams: 128, ClientBufferBytes: 256 << 10, MaxBufferedBytes: 64 << 20, InactivityTimeout: Duration(10 * time.Second), ClientWriteTimeout: Duration(10 * time.Second)},
 		Storage:    Storage{"data/udphttp-proxy.db"}, Logging: Logging{Level: "info", RetentionCount: 2000, RetentionDays: 7},
@@ -177,8 +183,11 @@ func (c Config) Validate() error {
 		}
 	}
 	ip, err := netip.ParseAddr(c.Management.Host)
-	add(err == nil && ip.Is4() && ip.IsLoopback(), "management.host must be a literal IPv4 loopback address; authenticated remote administration is unavailable")
+	add(err == nil && ip.Is4() && ip.IsLoopback(), "management.host must be a literal IPv4 loopback address")
 	add(validPort(c.Management.Port), "management.port must be 1..65535")
+	if err := c.Management.ReverseProxy.Validate(); err != nil {
+		issues = append(issues, err)
+	}
 	for name, d := range map[string]Duration{"read_timeout": c.Management.ReadTimeout, "write_timeout": c.Management.WriteTimeout, "idle_timeout": c.Management.IdleTimeout, "shutdown_timeout": c.Management.ShutdownTimeout, "connect_timeout": c.Streaming.ConnectTimeout, "inactivity_timeout": c.Streaming.InactivityTimeout, "client_write_timeout": c.Streaming.ClientWriteTimeout} {
 		add(d > 0 && d <= Duration(24*time.Hour), name+" must be greater than zero and at most 24h")
 	}

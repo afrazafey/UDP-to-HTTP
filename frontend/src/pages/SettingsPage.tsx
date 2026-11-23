@@ -336,7 +336,7 @@ export function SettingsPage({
                   ],
                   [
                     "Session status • read-only",
-                    "No browser account/session; trusted local-user boundary",
+                    "Browser sessions are not managed by the daemon",
                   ],
                   [
                     "Management bind • read-only",
@@ -344,7 +344,17 @@ export function SettingsPage({
                   ],
                   [
                     "Trusted reverse proxies • read-only",
-                    "None; forwarded headers are always ignored",
+                    Array.isArray(data.settings.read_only.trusted_proxies) &&
+                    data.settings.read_only.trusted_proxies.length
+                      ? data.settings.read_only.trusted_proxies.join(", ")
+                      : "None; forwarded headers ignored",
+                  ],
+                  [
+                    "Trusted management origins • read-only",
+                    Array.isArray(data.settings.read_only.trusted_origins) &&
+                    data.settings.read_only.trusted_origins.length
+                      ? data.settings.read_only.trusted_origins.join(", ")
+                      : "None",
                   ],
                   [
                     "Playback authorization • read-only",

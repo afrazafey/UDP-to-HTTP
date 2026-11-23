@@ -63,7 +63,13 @@ func (s *Service) systemInfo(w http.ResponseWriter, r *http.Request) {
 	if s.options.DroppedLogs != nil {
 		dropped = s.options.DroppedLogs()
 	}
-	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + Host + Origin + CSRF on writes; local users are trusted", "remote_authentication": "unavailable; remote binding prohibited", "trusted_proxies": []string{}, "linux_acceptance": "pending"})
+	authentication := "unavailable; remote binding prohibited"
+	proxies := []string{}
+	if s.options.Config.Management.ReverseProxy.Enabled {
+		authentication = "enforced by configured reverse proxy; native remote binding prohibited"
+		proxies = append(proxies, s.options.Config.Management.ReverseProxy.TrustedProxies...)
+	}
+	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + direct/trusted-proxy Host + Origin/Referer + fetch metadata + CSRF on writes; local users are trusted", "remote_authentication": authentication, "trusted_proxies": proxies, "reverse_proxy": s.options.Config.Management.ReverseProxy, "linux_acceptance": "pending"})
 }
 
 type settingsRequest struct {

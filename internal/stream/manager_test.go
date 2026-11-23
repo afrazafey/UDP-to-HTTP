@@ -339,6 +339,12 @@ func TestClientMeasurementsAndDisconnect(t *testing.T) {
 	}
 	defer sub.Close()
 	sub.RecordOutput(1880)
+	// Coarse host clocks can still report zero elapsed time immediately after
+	// subscribing. Wait for a measurable interval before asserting bitrate.
+	eventually(t, func() bool {
+		clients := m.Clients()
+		return len(clients) == 1 && clients[0].OutputBitrate > 0
+	})
 	clients := m.Clients()
 	if len(clients) != 1 || clients[0].BytesDelivered != 1880 || clients[0].OutputBitrate <= 0 || clients[0].DurationSeconds < 0 {
 		t.Fatal("invalid client measurements", clients)

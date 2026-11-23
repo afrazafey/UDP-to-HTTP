@@ -31,6 +31,7 @@ export default defineConfig({
         configure(proxy) {
           proxy.on("proxyReq", (request) => {
             request.removeHeader("origin");
+            request.removeHeader("referer");
             request.removeHeader("sec-fetch-site");
           });
         },

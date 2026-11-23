@@ -11,10 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -106,8 +103,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// The entire Phase 1 listener is loopback-only. Forwarded headers are never trusted.
-// Host validation also blocks browser DNS rebinding against a local daemon.
+// Management always uses a loopback listener. Proxy trust is explicitly opt-in;
+// both direct and proxied requests pass browser-origin checks before routing.
 func (s *Service) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -115,38 +112,16 @@ func (s *Service) protect(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		ip, ipErr := netip.ParseAddr(host)
-		if err != nil || ipErr != nil || !ip.IsLoopback() {
-			writeJSON(w, 403, map[string]string{"error": "Local administration only"})
-			return
-		}
-		hostname, port, err := net.SplitHostPort(r.Host)
-		if err != nil {
-			hostname = r.Host
-			port = "80"
-		}
-		hostIP, e := netip.ParseAddr(hostname)
-		if (hostname != "localhost" && (e != nil || !hostIP.Is4() || !hostIP.IsLoopback())) || port != strconv.Itoa(s.options.Config.Management.Port) {
-			writeJSON(w, 403, map[string]string{"error": "Untrusted management host"})
-			return
-		}
-		if origin := r.Header.Get("Origin"); origin != "" {
-			u, e := url.Parse(origin)
-			if e != nil || u.Scheme != "http" || u.Host != r.Host || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-				writeJSON(w, 403, map[string]string{"error": "Cross-origin administration denied"})
-				return
-			}
-		}
-		if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" {
-			writeJSON(w, 403, map[string]string{"error": "Cross-site administration denied"})
+		if err := s.authorizeManagement(r); err != nil {
+			writeJSON(w, 403, map[string]string{"error": err.Error()})
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			capable := s.options.Streams != nil && (r.URL.Path == "/api/v1/streams" || strings.HasPrefix(r.URL.Path, "/api/v1/streams/") || strings.HasPrefix(r.URL.Path, "/api/v1/clients/")) || s.options.Settings != nil && (r.URL.Path == "/api/v1/settings" || strings.HasPrefix(r.URL.Path, "/api/v1/settings/"))
 			mutation := capable && (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE")
 			if mutation {
-				if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(s.csrf)) != 1 {
+				token, err := singleHeader(r, "X-CSRF-Token")
+				if err != nil || subtle.ConstantTimeCompare([]byte(token), []byte(s.csrf)) != 1 {
 					writeJSON(w, 403, map[string]string{"error": "A valid local CSRF token is required"})
 					return
 				}
@@ -238,10 +213,14 @@ func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	if s.options.Settings != nil {
 		activeConfig = s.options.Settings.Active()
 	}
+	remote := "unavailable"
+	if s.options.Config.Management.ReverseProxy.Enabled {
+		remote = "trusted_reverse_proxy"
+	}
 	writeJSON(w, 200, map[string]any{
 		"service": "udphttp-proxy", "version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "phase": phase,
 		"status": status, "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "platform": runtime.GOOS + "/" + runtime.GOARCH, "go_version": runtime.Version(),
-		"components":    map[string]string{"management": "available", "storage": map[bool]string{true: "ready", false: "unavailable"}[ok], "streaming": streaming, "remote_administration": "unavailable", "metrics": metrics, "log_viewer": logViewer, "configuration_editor": editor},
+		"components":    map[string]string{"management": "available", "storage": map[bool]string{true: "ready", false: "unavailable"}[ok], "streaming": streaming, "remote_administration": remote, "metrics": metrics, "log_viewer": logViewer, "configuration_editor": editor},
 		"configuration": activeConfig,
 	})
 }
