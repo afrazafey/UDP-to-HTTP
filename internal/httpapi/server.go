@@ -64,6 +64,11 @@ func New(o Options) *Service {
 	}
 	s := &Service{options: o, started: buildinfo.StartedAt, csrf: rand.Text()}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/playlist.m3u", s.exportPlaylist)
+	mux.HandleFunc("/api/v1/playlist/config", s.playlistConfiguration)
+	mux.HandleFunc("/api/v1/import/", s.channelImport)
+	mux.HandleFunc("/api/v1/streams/bulk", s.bulkChannels)
+	mux.HandleFunc("/api/v1/diagnostics", s.diagnostics)
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/v1/status", s.status)
 	mux.HandleFunc("/api/v1/interfaces", s.interfaces)
@@ -118,6 +123,7 @@ func (s *Service) protect(next http.Handler) http.Handler {
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			capable := s.options.Streams != nil && (r.URL.Path == "/api/v1/streams" || strings.HasPrefix(r.URL.Path, "/api/v1/streams/") || strings.HasPrefix(r.URL.Path, "/api/v1/clients/")) || s.options.Settings != nil && (r.URL.Path == "/api/v1/settings" || strings.HasPrefix(r.URL.Path, "/api/v1/settings/"))
+			capable = capable || s.options.Streams != nil && (strings.HasPrefix(r.URL.Path, "/api/v1/import/") || r.URL.Path == "/api/v1/diagnostics")
 			mutation := capable && (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE")
 			if mutation {
 				token, err := singleHeader(r, "X-CSRF-Token")
@@ -178,7 +184,7 @@ func (s *Service) health(w http.ResponseWriter, r *http.Request) {
 		phase = 2
 	}
 	if s.options.Settings != nil {
-		phase = 3
+		phase = 4
 	}
 	writeJSON(w, code, map[string]any{"status": status, "phase": phase, "storage_ready": ok})
 }
@@ -203,7 +209,7 @@ func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	}
 	logViewer := "unavailable"
 	if s.options.Settings != nil {
-		phase = 3
+		phase = 4
 		editor = "settings_and_channels"
 	}
 	if s.options.Events != nil {

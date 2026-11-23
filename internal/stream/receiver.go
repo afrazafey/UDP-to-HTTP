@@ -57,7 +57,7 @@ func (r *udpReceiver) open(c Channel) error {
 		r.conn, err = net.ListenMulticastUDP("udp4", r.iface, &net.UDPAddr{IP: r.group, Port: c.SourcePort})
 		if err == nil {
 			r.packet = ipv4.NewPacketConn(r.conn)
-			err = r.packet.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true)
+			err = r.configureMulticast()
 		}
 	} else {
 		r.conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IP(r.bind.AsSlice()), Port: c.SourcePort})
@@ -86,14 +86,8 @@ func (r *udpReceiver) Read(ctx context.Context, buffer []byte) (int, bool, error
 	if err := r.conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
 		return 0, false, err
 	}
-	if r.packet != nil {
-		n, control, _, err := r.packet.ReadFrom(buffer)
-		if err != nil {
-			return n, false, err
-		}
-		// Linux can deliver other groups joined on a shared UDP port. Verify both
-		// actual destination and ingress interface before accepting any payload.
-		return n, control != nil && control.Dst.Equal(r.group) && control.IfIndex == r.iface.Index, nil
+	if r.group != nil {
+		return r.readMulticast(buffer)
 	}
 	n, from, err := r.conn.ReadFromUDPAddrPort(buffer)
 	return n, err == nil && from.Addr().Unmap() == r.sender, err

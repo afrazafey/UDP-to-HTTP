@@ -1,0 +1,86 @@
+name: Reusable release validation
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: frontend
+      - name: Formatting, vet, and JSON test results
+        shell: bash
+        run: |
+          mkdir -p build
+          test -z "$(gofmt -l cmd internal)"
+          go vet ./...
+          set -o pipefail
+          go test -json ./... | tee build/go-tests.jsonl
+      - name: Race detector
+        shell: bash
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          set -o pipefail
+          go test -race -json ./... | tee build/go-race.jsonl
+      - name: Coverage
+        run: go test -coverprofile=build/coverage.out ./...
+      - name: Vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      - name: Build platform candidates
+        run: |
+          python scripts/build-release.py --version 0.4.0-dev
+          python scripts/verify-artifacts.py
+      - name: Linux smoke and resource load
+        if: runner.os == 'Linux'
+        run: |
+          python3 scripts/linux-smoke.py --binary build/udphttp-proxy-linux-amd64
+          python3 scripts/load-test.py --binary build/udphttp-proxy-linux-amd64
+          dpkg-deb --info 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
+          dpkg-deb --contents 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
+          sudo dpkg -i 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
+          /usr/bin/udphttp-proxy version
+          sudo systemd-analyze verify deploy/udphttp-proxy.service
+          sudo systemctl restart udphttp-proxy
+          curl --retry 10 --retry-delay 1 --retry-connrefused --fail http://127.0.0.1:8080/health
+          echo '# upgrade-preservation-check' | sudo tee -a /etc/udphttp-proxy/config.yaml
+          sudo dpkg -i 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
+          grep upgrade-preservation-check /etc/udphttp-proxy/config.yaml
+          sudo dpkg --remove udphttp-proxy
+          test -f /etc/udphttp-proxy/config.yaml
+          sudo dpkg --purge udphttp-proxy
+      - name: Native Windows service and resource load
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/test-windows-service.ps1 -Binary ./build/udphttp-proxy-windows-amd64.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/load-test.py --binary build/udphttp-proxy-windows-amd64.exe
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase4-validation-${{ matrix.os }}
+          path: build/
+          retention-days: 14

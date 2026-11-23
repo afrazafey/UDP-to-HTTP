@@ -8,20 +8,36 @@ import (
 )
 
 type Interface struct {
-	Index     int      `json:"index"`
-	Name      string   `json:"name"`
-	MTU       int      `json:"mtu"`
-	Up        bool     `json:"up"`
-	Loopback  bool     `json:"loopback"`
-	Multicast bool     `json:"multicast"`
-	IPv4      []string `json:"ipv4"`
-	MAC       string   `json:"mac"`
+	Counters  *ErrorCounters `json:"error_counters"`
+	Index     int            `json:"index"`
+	Name      string         `json:"name"`
+	MTU       int            `json:"mtu"`
+	Up        bool           `json:"up"`
+	Loopback  bool           `json:"loopback"`
+	Multicast bool           `json:"multicast"`
+	IPv4      []string       `json:"ipv4"`
+	MAC       string         `json:"mac"`
 }
 
 // Discover uses the OS network API, including Linux interfaces without shell commands or root.
 func Discover() ([]Interface, error) {
-	return discover(net.Interfaces, func(i net.Interface) ([]net.Addr, error) { return i.Addrs() })
+	items, err := discover(net.Interfaces, func(i net.Interface) ([]net.Addr, error) { return i.Addrs() })
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		items[i].Counters = interfaceCounters(items[i].Name)
+	}
+	return items, nil
 }
+
+type ErrorCounters struct {
+	RXErrors  uint64 `json:"rx_errors"`
+	TXErrors  uint64 `json:"tx_errors"`
+	RXDropped uint64 `json:"rx_dropped"`
+	TXDropped uint64 `json:"tx_dropped"`
+}
+
 func discover(list func() ([]net.Interface, error), addrs func(net.Interface) ([]net.Addr, error)) ([]Interface, error) {
 	items, err := list()
 	if err != nil {

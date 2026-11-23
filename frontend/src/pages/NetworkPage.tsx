@@ -1,4 +1,5 @@
 import type { OperationsData } from "../types/operations";
+import { Diagnostics } from "../components/network/Diagnostics";
 import { Badge, Button, Panel } from "../components/ui";
 import {
   NetworkFields,
@@ -16,6 +17,7 @@ export function NetworkPage({
   return (
     <>
       {editor.status}
+      <Diagnostics data={data} />
       <Panel
         title="Detected network interfaces"
         description="Read from the OS; no addresses, links, routes or firewall rules are modified."
@@ -30,6 +32,7 @@ export function NetworkPage({
                 <th>Operational state</th>
                 <th>Multicast</th>
                 <th>MTU</th>
+                <th>Driver errors / drops</th>
               </tr>
             </thead>
             <tbody>
@@ -53,6 +56,11 @@ export function NetworkPage({
                   </td>
                   <td>{i.multicast ? "Supported" : "Unavailable"}</td>
                   <td>{i.mtu}</td>
+                  <td>
+                    {i.error_counters
+                      ? `RX ${i.error_counters.rx_errors} / ${i.error_counters.rx_dropped}, TX ${i.error_counters.tx_errors} / ${i.error_counters.tx_dropped}`
+                      : "Unavailable"}
+                  </td>
                 </tr>
               ))}
             </tbody>

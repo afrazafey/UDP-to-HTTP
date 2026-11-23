@@ -1,7 +1,8 @@
 import { useState } from "react";
+import type { Channel } from "../Streaming";
 import type { OperationsData, Stream } from "../types/operations";
 import { mutate } from "../services/api";
-import { rate, timestamp } from "../utils/format";
+import { duration, rate, timestamp } from "../utils/format";
 import {
   Badge,
   Button,
@@ -22,6 +23,10 @@ export function StreamsPage({
   refresh: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [group, setGroup] = useState("");
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<string | null>(null);
+  const [copy, setCopy] = useState<Channel | null>(null);
   const [state, setState] = useState("");
   const [source, setSource] = useState("");
   const [sort, setSort] = useState("name");
@@ -34,6 +39,7 @@ export function StreamsPage({
     .filter(
       (s) =>
         (!state || s.state === state) &&
+        (!group || s.channel.group === group) &&
         (!source || s.channel.source_type === source) &&
         `${s.channel.name} ${s.channel.id} ${s.channel.source_address} ${s.channel.interface}`
           .toLowerCase()
@@ -42,6 +48,9 @@ export function StreamsPage({
     .sort((a, b) => {
       let result = 0;
       switch (sort) {
+        case "order":
+          result = (a.channel.sort_order ?? 0) - (b.channel.sort_order ?? 0);
+          break;
         case "clients":
           result = a.clients - b.clients;
           break;
@@ -81,6 +90,43 @@ export function StreamsPage({
             }}
           />
         </Field>
+        <Field label="Filter channel group">
+          <select
+            value={group}
+            onChange={(e) => {
+              setGroup(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">All groups</option>
+            {[
+              ...new Set(
+                data.streams.map((s) => s.channel.group || "").filter(Boolean),
+              ),
+            ]
+              .sort()
+              .map((g) => (
+                <option key={g}>{g}</option>
+              ))}
+          </select>
+        </Field>
+        <Button
+          onClick={() =>
+            setSelection(new Set(visible.map((s) => s.channel.id)))
+          }
+        >
+          Select visible
+        </Button>
+        <Button onClick={() => setSelection(new Set())}>Clear selection</Button>
+        {(["enable", "disable", "delete"] as const).map((operation) => (
+          <Button
+            key={operation}
+            disabled={action.busy || !selection.size}
+            onClick={() => setBulk(operation)}
+          >
+            Bulk {operation}
+          </Button>
+        ))}
         <Field label="Filter stream status">
           <select
             value={state}
@@ -118,11 +164,17 @@ export function StreamsPage({
         </Field>
         <Field label="Sort streams">
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            {["name", "state", "source", "clients", "input", "output"].map(
-              (s) => (
-                <option key={s}>{s}</option>
-              ),
-            )}
+            {[
+              "name",
+              "order",
+              "state",
+              "source",
+              "clients",
+              "input",
+              "output",
+            ].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
           </select>
         </Field>
         <Button onClick={() => setDescending(!descending)}>
@@ -142,6 +194,7 @@ export function StreamsPage({
             <table className="op-stream-table">
               <thead>
                 <tr>
+                  <th>Select</th>
                   <th>Channel</th>
                   <th>Source</th>
                   <th>Type / interface</th>
@@ -149,6 +202,7 @@ export function StreamsPage({
                   <th>Clients</th>
                   <th>Input</th>
                   <th>Output</th>
+                  <th>Uptime</th>
                   <th>Last packet</th>
                   <th>Actions</th>
                 </tr>
@@ -156,11 +210,28 @@ export function StreamsPage({
               <tbody>
                 {visible.map((s) => (
                   <tr key={s.channel.id}>
+                    <td data-label="Select">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select channel ${s.channel.name}`}
+                        checked={selection.has(s.channel.id)}
+                        onChange={(e) =>
+                          setSelection((old) => {
+                            const next = new Set(old);
+                            e.target.checked
+                              ? next.add(s.channel.id)
+                              : next.delete(s.channel.id);
+                            return next;
+                          })
+                        }
+                      />
+                    </td>
                     <td data-label="Channel">
                       <a href={`#/streams/${s.channel.id}`}>
                         <strong>{s.channel.name}</strong>
                       </a>
                       <small>{s.channel.id}</small>
+                      <small>{s.channel.group}</small>
                     </td>
                     <td data-label="Source" className="mono">
                       {s.channel.source_address}:{s.channel.source_port}
@@ -170,7 +241,7 @@ export function StreamsPage({
                       <small>{s.channel.interface}</small>
                     </td>
                     <td data-label="Status">
-                      <Badge state={s.state} />
+                      <Badge state={s.health ?? s.state} />
                       {s.errors.length > 0 && (
                         <small>{s.errors.length} recent events</small>
                       )}
@@ -180,6 +251,7 @@ export function StreamsPage({
                     </td>
                     <td data-label="Input">{rate(s.input_bitrate)}</td>
                     <td data-label="Output">{rate(s.output_bitrate)}</td>
+                    <td data-label="Uptime">{duration(s.uptime_seconds)}</td>
                     <td data-label="Last packet">
                       {timestamp(s.last_packet_at)}
                     </td>
@@ -192,6 +264,17 @@ export function StreamsPage({
                         remove={() => setDeleting(s)}
                         action={action}
                       />
+                      <Button
+                        onClick={() =>
+                          setCopy({
+                            ...s.channel,
+                            id: `${s.channel.id.slice(0, 57)}-copy`,
+                            name: `${s.channel.name.slice(0, 120)} copy`,
+                          })
+                        }
+                      >
+                        Duplicate channel
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -231,6 +314,52 @@ export function StreamsPage({
           onClose={() => setEditing(null)}
           refresh={refresh}
         />
+      )}
+      {copy && (
+        <ChannelDialog
+          data={data}
+          initial={copy}
+          onClose={() => setCopy(null)}
+          refresh={refresh}
+        />
+      )}
+      {bulk && (
+        <Dialog
+          title={`Confirm bulk ${bulk}`}
+          onClose={() => !action.busy && setBulk(null)}
+          footer={
+            <>
+              <Button disabled={action.busy} onClick={() => setBulk(null)}>
+                Cancel
+              </Button>
+              <Button
+                className={bulk === "delete" ? "danger" : "primary"}
+                disabled={action.busy}
+                onClick={() =>
+                  void action.run(async () => {
+                    await mutate("/api/v1/streams/bulk", "POST", {
+                      ids: [...selection],
+                      action: bulk,
+                      confirm: true,
+                    });
+                    setBulk(null);
+                    setSelection(new Set());
+                    refresh();
+                  }, "Bulk operation committed atomically")
+                }
+              >
+                Confirm bulk action
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {bulk} {selection.size} selected channels. Changes persist in
+            SQLite. Disabling, deleting, or updating a channel disconnects its
+            active viewers.
+          </p>
+          {action.error && <ErrorBanner>{action.error}</ErrorBanner>}
+        </Dialog>
       )}
       {deleting && (
         <Dialog

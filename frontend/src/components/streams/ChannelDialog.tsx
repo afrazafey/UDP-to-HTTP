@@ -6,11 +6,13 @@ import { Button, Dialog, ErrorBanner, Field, useAction } from "../ui";
 export function ChannelDialog({
   data,
   stream,
+  initial,
   onClose,
   refresh,
 }: {
   data: OperationsData;
   stream?: Stream;
+  initial?: Channel;
   onClose: () => void;
   refresh: () => void;
 }) {
@@ -19,7 +21,7 @@ export function ChannelDialog({
   const [form, setForm] = useState<Channel>(() =>
     stream
       ? { ...stream.channel }
-      : {
+      : (initial ?? {
           id: "",
           name: "",
           source_type: "multicast",
@@ -36,7 +38,7 @@ export function ChannelDialog({
           max_clients: settings.streaming.max_clients,
           client_buffer_bytes: settings.streaming.client_buffer_bytes,
           udp_receive_buffer: settings.streaming.udp_receive_buffer,
-        },
+        }),
   );
   const action = useAction();
   const [invalid, setInvalid] = useState("");
@@ -107,6 +109,60 @@ export function ChannelDialog({
           </div>
         )}
         <div className="op-form-grid">
+          {(
+            [
+              ["Group", "group"],
+              ["TVG ID", "tvg_id"],
+              ["TVG name", "tvg_name"],
+              ["Logo URL", "logo_url"],
+              ["Description", "description"],
+            ] as const
+          ).map(([label, key]) => (
+            <Field key={key} label={label}>
+              <input
+                maxLength={
+                  key === "logo_url" || key === "description" ? 2048 : 256
+                }
+                value={form[key] ?? ""}
+                onChange={(e) => update({ [key]: e.target.value })}
+              />
+            </Field>
+          ))}
+          <Field label="Channel sort order">
+            <input
+              type="number"
+              min={0}
+              max={1000000}
+              value={form.sort_order ?? 0}
+              onChange={(e) => update({ sort_order: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Preferred playback port">
+            <select
+              value={form.preferred_playback_port ?? "primary"}
+              onChange={(e) =>
+                update({
+                  preferred_playback_port: e.target.value as
+                    | "primary"
+                    | "secondary",
+                })
+              }
+            >
+              <option value="primary">Primary</option>
+              <option
+                value="secondary"
+                disabled={!settings.network.secondary_http_port}
+              >
+                Secondary
+              </option>
+            </select>
+          </Field>
+          {initial && (
+            <p>
+              Copy the channel settings, then choose a unique ID and UDP
+              source/interface. Exact duplicate receivers are rejected.
+            </p>
+          )}
           <Field label="Channel name">
             <input
               required

@@ -142,11 +142,12 @@ func (m *SettingsManager) View(ctx context.Context) (map[string]any, error) {
 		"settings": r.Desired, "active": FromConfig(m.active), "revision": r.Revision,
 		"accepted_revision": r.AcceptedRevision, "restart_required": restartRequired(r.Desired, FromConfig(m.active)), "last_error": r.LastError,
 		"read_only": map[string]any{
-			"management_binding": net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)),
-			"storage_path":       m.base.Storage.Path, "authentication": authentication,
+			"advertised_playback_host": m.base.Playlist.AdvertisedHost,
+			"management_binding":       net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)),
+			"storage_path":             m.base.Storage.Path, "authentication": authentication,
 			"trusted_proxies": proxies, "trusted_origins": origins, "forwarded_headers": forwarded,
 			"playback_authorization": "actual-peer CIDR allowlist; bearer tokens unavailable",
-			"recovery_policy":        "250ms..30s exponential retry; read-only",
+			"recovery_policy":        fmt.Sprintf("%s..%s exponential retry with %.0f%% jitter; rejoin after %s; YAML-only", m.base.Recovery.MinDelay.Value(), m.base.Recovery.MaxDelay.Value(), m.base.Recovery.Jitter*100, m.base.Recovery.RejoinAfter.Value()),
 			"startup_service":        "systemd controls process startup; channel startup is individually persisted",
 		},
 	}, nil

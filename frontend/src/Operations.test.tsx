@@ -27,6 +27,7 @@ function setup(
     let code = 200;
     const parsed = new URL(path, "http://localhost");
     switch (parsed.pathname) {
+      case "/api/v1/diagnostics": result={channels:[]}; break;
       case "/api/v1/dashboard":
         result = data.dashboard;
         break;

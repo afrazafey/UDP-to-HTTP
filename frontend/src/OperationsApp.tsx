@@ -37,9 +37,11 @@ import { MonitoringPage } from "./pages/MonitoringPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SystemPage } from "./pages/SystemPage";
+import { PlaylistsPage } from "./pages/PlaylistsPage";
 const navigation = [
   { path: "/overview", name: "Overview", icon: LayoutDashboard },
   { path: "/streams", name: "Streams", icon: Radio },
+  { path: "/playlists", name: "Playlists & Import", icon: FileText },
   { path: "/network", name: "Network Interfaces", icon: Cable },
   { path: "/clients", name: "Connected Clients", icon: Users },
   { path: "/monitoring", name: "Monitoring", icon: Activity },
@@ -113,6 +115,9 @@ export function OperationsApp({ status }: { status: Status }) {
       );
     } else
       switch (path) {
+        case "/playlists":
+          page = <PlaylistsPage data={data} refresh={poll.refresh} />;
+          break;
         case "/overview":
           page = <OverviewPage data={data} />;
           break;
@@ -181,7 +186,7 @@ export function OperationsApp({ status }: { status: Status }) {
               <strong>
                 UDP<span>HTTP</span>
               </strong>
-              <small>LINUX STREAM PROXY</small>
+              <small>UDP STREAM PROXY</small>
             </span>
           </a>
           <div className="op-nav-label">OPERATIONS</div>

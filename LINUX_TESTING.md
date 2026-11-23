@@ -1,5 +1,7 @@
 # Linux runtime validation
 
+For current Phase 4 installation, native Windows/Linux CI, recovery/import/backup tests and measured load results, use [docs/PHASE4_REPORT.md](docs/PHASE4_REPORT.md) and [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md). The commands below retain historical Phase 3 validation context.
+
 For authenticated same-host LAN management through Nginx, follow [deploy/NGINX.md](deploy/NGINX.md). This includes backend trust settings, the protected vhost example, and browser/API acceptance checks. Keep the backend on loopback; target-host Nginx authentication, IP restrictions, and TLS need separate verification.
 
 Status: **pending**. The development host is Windows without WSL/Docker/Linux. The user selected local checks plus prepared CI, with Linux validation reported as pending. Neither an ELF cross-build nor this document proves runtime behavior.

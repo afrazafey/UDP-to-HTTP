@@ -49,6 +49,12 @@ export interface Status {
   configuration: Configuration;
 }
 export interface NetworkInterface {
+  error_counters?: {
+    rx_errors: number;
+    tx_errors: number;
+    rx_dropped: number;
+    tx_dropped: number;
+  } | null;
   index: number;
   name: string;
   mtu: number;

@@ -1,0 +1,28 @@
+# Installed by scripts/install-windows.ps1; @DATA_DIR@ is substituted there.
+log_format: json
+management:
+  host: 127.0.0.1
+  port: 8080
+network:
+  multicast_interface: "" # Prefer the assigned IPv4 address on Windows.
+  http_interface: 127.0.0.1
+  http_port: 7781
+  secondary_http_port: 7782
+streaming:
+  allowed_client_networks: []
+  allowed_multicast_groups: []
+  allowed_unicast_sources: []
+  blocked_multicast_networks: [224.0.0.0/24]
+storage:
+  path: '@DATA_DIR@/udphttp-proxy.db'
+playlist:
+  advertised_host: ""
+  remote_enabled: false
+  allowed_client_networks: []
+recovery:
+  enabled: true
+  min_delay: 250ms
+  max_delay: 30s
+  jitter: 0.2
+  rejoin_after: 30s
+  max_attempts: 0

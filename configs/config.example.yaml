@@ -1,4 +1,16 @@
 # Management remains local-only. Playback listeners have a separate CIDR policy.
+log_format: json # text is available for an interactive console; restart required.
+recovery:
+  enabled: true
+  min_delay: 250ms
+  max_delay: 30s
+  jitter: 0.2
+  rejoin_after: 30s
+  max_attempts: 0 # Unlimited retries with bounded delay; 0 does not disable backoff.
+playlist:
+  advertised_host: "" # Explicit reachable IPv4/hostname, without scheme or port.
+  remote_enabled: false
+  allowed_client_networks: [] # Additional restriction; playback CIDRs also apply.
 management:
   host: 127.0.0.1
   port: 8080

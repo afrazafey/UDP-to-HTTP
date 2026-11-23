@@ -53,7 +53,12 @@ export function StreamDetailsPage({
       </Panel>
     );
   const c = stream.channel;
-  const url = playbackURL(stream, data.settings.active, data.interfaces);
+  const url = playbackURL(
+    stream,
+    data.settings.active,
+    data.interfaces,
+    String(data.settings.read_only.advertised_playback_host ?? ""),
+  );
   const nativeSupport = document
     .createElement("video")
     .canPlayType("video/mp2t");
@@ -62,7 +67,7 @@ export function StreamDetailsPage({
       <Panel
         title={c.name}
         description={`${c.id} • ${c.source_type} • ${c.source_address}:${c.source_port}`}
-        action={<Badge state={stream.state} />}
+        action={<Badge state={stream.health ?? stream.state} />}
       >
         <div className="op-prose">
           <StreamControls
@@ -112,6 +117,20 @@ export function StreamDetailsPage({
                   : "No active receiver",
               ],
               ["Last valid packet", timestamp(stream.last_packet_at)],
+              ["Last UDP datagram", timestamp(stream.last_datagram_at)],
+              ["Last successful recovery", timestamp(stream.last_recovery_at)],
+              [
+                "Socket bound",
+                stream.socket_bound == null
+                  ? "Unavailable"
+                  : String(stream.socket_bound),
+              ],
+              [
+                "Multicast joined",
+                stream.membership_joined == null
+                  ? "Unavailable"
+                  : String(stream.membership_joined),
+              ],
               ["Enabled", c.enabled ? "Yes" : "No"],
               ["Startup", c.startup],
             ]}
@@ -123,6 +142,16 @@ export function StreamDetailsPage({
               ["Received payload bytes", bytes(stream.counters.input_bytes)],
               ["HTTP payload bytes", bytes(stream.counters.output_bytes)],
               ["MPEG-TS packets", stream.counters.packets],
+              ["UDP datagrams", stream.counters.datagrams ?? "Unavailable"],
+              ["TS sync losses", stream.counters.sync_errors ?? "Unavailable"],
+              [
+                "Receiver restarts",
+                stream.counters.receiver_restarts ?? "Unavailable",
+              ],
+              [
+                "Successful recoveries",
+                stream.counters.recoveries ?? "Unavailable",
+              ],
               ["Corrupt observations", stream.counters.corrupt_packets],
               ["Discarded bytes", stream.counters.discarded_bytes],
               ["Continuity errors", stream.counters.continuity_errors],

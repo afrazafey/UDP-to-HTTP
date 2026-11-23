@@ -4,7 +4,7 @@
 
 CLI/config/discovery/SQLite/embedded UI/systemd/package infrastructure and the shared UDP/MPEG-TS playback engine remain. Historical reports record their actual validation limits; their source and original tests are retained.
 
-## Phase 3 — management operations implementation
+## Phase 3 — historical management operations implementation
 
 - [x] Mandatory repository audit and actual route/model inventory.
 - [x] Modular professional dashboard, light/dark/system themes, collapsible/mobile/keyboard navigation.
@@ -24,8 +24,12 @@ CLI/config/discovery/SQLite/embedded UI/systemd/package infrastructure and the s
 - [ ] Execute Ubuntu CI/native Linux acceptance, including multicast, occupied-port rollback, systemd and packages.
 - [ ] Perform actual browser visual/accessibility review and real IPTV/codec validation.
 
-No production readiness is claimed until acceptance gates pass. Remote administration stays prohibited, with trusted local users and CSRF as the management boundary. Unavailable sessions/accounts/trusted forwarding/playback tokens are labeled read-only rather than exposed without implementation.
+This is the historical Phase 3 checklist. Current behavior, including explicit same-host proxy compatibility and Phase 4 validation status, is documented in README.md and docs/PHASE4_REPORT.md. Native remote binding/account sessions and signed playback tokens remain unavailable.
 
-## Phase 4 — not started
+## Phase 4 — implementation candidate, acceptance pending
 
-Await explicit review/approval before additional work. Potential future scope includes authenticated/TLS remote administration, account/session policy, signed playback authorization/trusted proxy configuration, immutable audit guarantees, file/journal integration, backup/restore/signing and sustained hardware acceptance. No such feature is silently enabled by Phase 3.
+Recovery/health, metadata/schema 4, transactional imports/bulk actions, M3U export, diagnostics, consistent backup/restore, native Windows SCM implementation, platform packaging, CI and documentation are implemented. Local evidence includes 27 frontend tests, receiver/recovery/concurrency tests and measured Windows fan-out up to 100 viewers. Full Go/race/native-platform/install/soak gates remain outstanding; the exact report distinguishes passes from blocked or unexecuted checks. No stable release, remote push or live deployment is performed.
+
+## Phase 5 — after Phase 4 acceptance
+
+First close current release blockers. Then consider hardware-backed soak automation, source aliases and improved telemetry, with any native remote authentication/TLS or signed playback design separately reviewed. Preserve source/client policies and the shared receiver architecture.

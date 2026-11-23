@@ -26,6 +26,9 @@ type Repository interface {
 	DeleteChannel(context.Context, string) error
 }
 type Options struct {
+	Recovery                                                                                    *RecoveryPolicy
+	interfaceCheck                                                                              func(*udpReceiver) error
+	socketOpened                                                                                func(*net.UDPConn)
 	Policy                                                                                      Policy
 	Repository                                                                                  Repository
 	Logger                                                                                      *slog.Logger
@@ -40,20 +43,22 @@ type worker struct {
 	stopping bool
 }
 type entry struct {
-	channel             Channel
-	state               string
-	blocked             bool
-	worker              *worker
-	clients             map[uint64]*Subscription
-	queued              int
-	started             time.Time
-	lastPacket          time.Time
-	idleSince           time.Time
-	counters            Counters
-	errors              []RecentError
-	sampleTime          time.Time
-	sampleIn, sampleOut uint64
-	inRate, outRate     float64
+	lastDatagram, lastRecovery                     time.Time
+	socketBound, membershipJoined, recoveryPending bool
+	channel                                        Channel
+	state                                          string
+	blocked                                        bool
+	worker                                         *worker
+	clients                                        map[uint64]*Subscription
+	queued                                         int
+	started                                        time.Time
+	lastPacket                                     time.Time
+	idleSince                                      time.Time
+	counters                                       Counters
+	errors                                         []RecentError
+	sampleTime                                     time.Time
+	sampleIn, sampleOut                            uint64
+	inRate, outRate                                float64
 }
 type Manager struct {
 	mu                        sync.Mutex
@@ -69,6 +74,18 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, o Options) (*Manager, error) {
+	if o.Recovery == nil {
+		p := DefaultRecovery()
+		o.Recovery = &p
+	}
+	p := *o.Recovery
+	if p.MinDelay < time.Millisecond || p.MaxDelay < p.MinDelay || p.RejoinAfter < time.Millisecond || !(p.Jitter >= 0 && p.Jitter <= 0.5) || p.MaxAttempts < 0 {
+		return nil, errors.New("invalid recovery policy")
+	}
+	o.Recovery = &p
+	if o.interfaceCheck == nil {
+		o.interfaceCheck = func(r *udpReceiver) error { return r.CheckInterface() }
+	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
@@ -287,6 +304,9 @@ func (m *Manager) startLocked(e *entry, pinned bool) {
 		return
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
+	if !e.started.IsZero() {
+		e.counters.ReceiverRestarts++
+	}
 	w := &worker{cancel: cancel, done: make(chan struct{}), pinned: pinned}
 	e.worker = w
 	e.state = "starting"
@@ -342,12 +362,15 @@ func (m *Manager) errorLocked(e *entry, operation string, err error) {
 	if len(e.errors) > 20 {
 		e.errors = append([]RecentError(nil), e.errors[len(e.errors)-20:]...)
 	}
-	m.options.Logger.Warn("stream event", "channel_id", e.channel.ID, "operation", operation, "error", message)
+	m.options.Logger.Warn("stream event", "component", "receiver", "channel_id", e.channel.ID, "event_type", operation, "error_category", operation, "operation", operation, "error", message)
 }
 func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 	defer func() {
+		m.options.Logger.Info("receiver stopped", "component", "receiver", "channel_id", e.channel.ID, "event_type", "receiver_stop")
 		m.mu.Lock()
 		if e.worker == w {
+			e.socketBound = false
+			e.membershipJoined = false
 			e.worker = nil
 			e.state = "stopped"
 			if !e.channel.Enabled {
@@ -360,7 +383,9 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 		m.mu.Unlock()
 		close(w.done)
 	}()
-	backoff := 250 * time.Millisecond
+	policy := *m.options.Recovery
+	backoff := policy.MinDelay
+	attempts := 0
 	for ctx.Err() == nil {
 		m.mu.Lock()
 		idle := activeClients(e) == 0 && !w.pinned && time.Since(e.idleSince) >= time.Duration(e.channel.IdleTimeoutSeconds)*time.Second
@@ -372,6 +397,12 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 			return
 		}
 		opened := time.Now()
+		if attempts > 0 {
+			m.mu.Lock()
+			e.counters.ReceiverRestarts++
+			m.mu.Unlock()
+			m.options.Logger.Info("receiver reopening", "component", "receiver", "channel_id", e.channel.ID, "event_type", "recovery_attempt", "attempt", attempts)
+		}
 		r, err := prepareReceiver(e.channel)
 		key := ""
 		if err == nil {
@@ -390,11 +421,19 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 		if err == nil {
 			m.mu.Lock()
 			e.state = "waiting"
+			e.socketBound = true
+			e.membershipJoined = e.channel.SourceType == "multicast"
 			m.mu.Unlock()
+			if m.options.socketOpened != nil {
+				m.options.socketOpened(r.conn)
+			}
+			m.options.Logger.Info("UDP socket ready", "component", "receiver", "channel_id", e.channel.ID, "event_type", "socket_open", "multicast_joined", e.channel.SourceType == "multicast")
 			err = m.receive(ctx, e, w, r)
 			r.Close()
 		}
 		m.mu.Lock()
+		e.socketBound = false
+		e.membershipJoined = false
 		if m.receivers[key] == w {
 			delete(m.receivers, key)
 		}
@@ -405,14 +444,18 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 		if ctx.Err() != nil {
 			return
 		}
-		if time.Since(opened) >= 5*time.Second {
-			backoff = 250 * time.Millisecond
-		}
 		m.mu.Lock()
+		if e.lastPacket.After(opened) {
+			backoff = policy.MinDelay
+			attempts = 0
+		}
+		attempts++
+		e.recoveryPending = true
+		e.counters.RecoveryFailures++
 		e.state = "retrying"
 		e.counters.Retries++
 		m.errorLocked(e, "receive", err)
-		wait := backoff
+		wait := policy.delay(backoff)
 		if activeClients(e) == 0 && !w.pinned {
 			remaining := time.Duration(e.channel.IdleTimeoutSeconds)*time.Second - time.Since(e.idleSince)
 			if remaining < wait {
@@ -420,6 +463,12 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 			}
 		}
 		m.mu.Unlock()
+		if !policy.Enabled || (policy.MaxAttempts > 0 && attempts > policy.MaxAttempts) {
+			m.mu.Lock()
+			e.blocked = true
+			m.mu.Unlock()
+			return
+		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -427,10 +476,10 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 			return
 		case <-timer.C:
 		}
-		if backoff < 30*time.Second {
+		if backoff < policy.MaxDelay {
 			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
+			if backoff > policy.MaxDelay {
+				backoff = policy.MaxDelay
 			}
 		}
 	}
@@ -451,7 +500,7 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 			}
 		}
 		if now.Sub(lastCheck) >= time.Second {
-			if checkErr := r.CheckInterface(); checkErr != nil {
+			if checkErr := m.options.interfaceCheck(r); checkErr != nil {
 				return checkErr
 			}
 			lastCheck = now
@@ -466,9 +515,11 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 			if !accepted {
 				e.counters.RejectedDatagrams++
 			} else {
+				e.lastDatagram = now
 				e.counters.Datagrams++
 				e.counters.InputBytes += uint64(n)
 				e.counters.Packets += stats.Packets
+				e.counters.SyncErrors += stats.SyncErrors
 				e.counters.CorruptPackets += stats.CorruptPackets
 				e.counters.DiscardedBytes += stats.DiscardedBytes
 				e.counters.ContinuityErrors += stats.ContinuityErrors
@@ -477,6 +528,12 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 			}
 		}
 		if len(data) > 0 {
+			if e.recoveryPending {
+				e.counters.Recoveries++
+				e.lastRecovery = now
+				e.recoveryPending = false
+				m.options.Logger.Info("valid transport recovered", "component", "receiver", "channel_id", e.channel.ID, "event_type", "recovered")
+			}
 			e.lastPacket = now
 			e.state = "running"
 			inactivityReported = false
@@ -495,9 +552,16 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 		if idle {
 			w.stopping = true
 		}
+		lastArrival := e.lastDatagram
 		m.mu.Unlock()
 		if idle {
 			return nil
+		}
+		if lastArrival.Before(opened) {
+			lastArrival = opened
+		}
+		if m.options.Recovery.Enabled && now.Sub(lastArrival) >= m.options.Recovery.RejoinAfter {
+			return errors.New("UDP source inactive; reopening socket and rejoining selected multicast interface when applicable")
 		}
 	}
 	return ctx.Err()
@@ -574,6 +638,7 @@ func (m *Manager) Subscribe(id, remoteIP string) (*Subscription, error) {
 	m.nextClient++
 	s := &Subscription{manager: m, entry: e, id: m.nextClient, queue: make(chan []byte, 64), done: make(chan struct{}), remoteIP: remoteIP, connectedAt: time.Now().UTC()}
 	e.clients[s.id] = s
+	m.options.Logger.Info("playback client connected", "component", "playback", "channel_id", id, "event_type", "client_connect", "client_id", s.id)
 	m.totalClients++
 	m.startLocked(e, false)
 	return s, nil
@@ -618,6 +683,7 @@ func (m *Manager) terminateLocked(s *Subscription) {
 		return
 	}
 	s.closed = true
+	m.options.Logger.Info("playback client disconnected", "component", "playback", "channel_id", s.entry.channel.ID, "event_type", "client_disconnect", "client_id", s.id)
 	close(s.done)
 	m.totalQueued -= s.queued
 	s.entry.queued -= s.queued
@@ -672,7 +738,7 @@ func (m *Manager) snapshotLocked(e *entry) Snapshot {
 		value := e.started.UTC()
 		started = &value
 	}
-	return Snapshot{StartedAt: started, Channel: e.channel, State: e.state, Clients: activeClients(e), UptimeSeconds: uptime, LastPacketAt: last, InputBitrate: e.inRate, OutputBitrate: e.outRate, Counters: e.counters, Errors: errorsCopy}
+	return Snapshot{Health: m.healthLocked(e), LastDatagramAt: timestamp(e.lastDatagram), LastRecoveryAt: timestamp(e.lastRecovery), SocketBound: e.socketBound, MembershipJoined: e.membershipJoined, StartedAt: started, Channel: e.channel, State: e.state, Clients: activeClients(e), UptimeSeconds: uptime, LastPacketAt: last, InputBitrate: e.inRate, OutputBitrate: e.outRate, Counters: e.counters, Errors: errorsCopy}
 }
 func (m *Manager) List() []Snapshot {
 	m.mu.Lock()

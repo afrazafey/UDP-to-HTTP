@@ -1,4 +1,16 @@
 # Packaged defaults. dpkg preserves this file as a conffile across upgrades.
+log_format: json
+recovery:
+  enabled: true
+  min_delay: 250ms
+  max_delay: 30s
+  jitter: 0.2
+  rejoin_after: 30s
+  max_attempts: 0
+playlist:
+  advertised_host: ""
+  remote_enabled: false
+  allowed_client_networks: []
 management:
   host: 127.0.0.1
   port: 8080

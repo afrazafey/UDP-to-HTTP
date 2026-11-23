@@ -87,7 +87,11 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 	level.Set(selected)
 	sink := events.NewSink(store, cfg.Logging.RetentionCount, cfg.Logging.RetentionDays)
 	defer sink.Close()
-	logger := slog.New(events.NewHandler(slog.NewJSONHandler(errOut, &slog.HandlerOptions{Level: &level}), sink)).With("service", "udphttp-proxy")
+	var output slog.Handler = slog.NewJSONHandler(errOut, &slog.HandlerOptions{Level: &level})
+	if cfg.LogFormat == "text" {
+		output = slog.NewTextHandler(errOut, &slog.HandlerOptions{Level: &level})
+	}
+	logger := slog.New(events.NewHandler(output, sink)).With("service", "udphttp-proxy")
 	settings.Live = func(_ config.Dashboard, l config.Logging) {
 		var value slog.Level
 		_ = value.UnmarshalText([]byte(l.Level))
@@ -146,7 +150,8 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 		statuses = append(statuses, httpapi.ListenerStatus{Kind: "playback", Address: l.Addr().String(), State: "listening"})
 		logger.Info("playback listening", "component", "http", "address", l.Addr().String())
 	}
-	engine, err := stream.NewManager(ctx, stream.Options{Policy: cfg.StreamPolicy(), Repository: store, Logger: logger.With("component", "stream"), MaxClients: cfg.Streaming.MaxClients, MaxStreams: cfg.Streaming.MaxStreams, ClientBufferBytes: cfg.Streaming.ClientBufferBytes, UDPReceiveBuffer: cfg.Streaming.UDPReceiveBuffer, StreamBuffer: cfg.Streaming.StreamBuffer, MaxBufferedBytes: cfg.Streaming.MaxBufferedBytes, InactivityTimeout: cfg.Streaming.InactivityTimeout.Value(), Disabled: !cfg.Streaming.Enabled})
+	policy := stream.RecoveryPolicy{Enabled: cfg.Recovery.Enabled, MinDelay: cfg.Recovery.MinDelay.Value(), MaxDelay: cfg.Recovery.MaxDelay.Value(), RejoinAfter: cfg.Recovery.RejoinAfter.Value(), Jitter: cfg.Recovery.Jitter, MaxAttempts: cfg.Recovery.MaxAttempts}
+	engine, err := stream.NewManager(ctx, stream.Options{Recovery: &policy, Policy: cfg.StreamPolicy(), Repository: store, Logger: logger.With("component", "stream"), MaxClients: cfg.Streaming.MaxClients, MaxStreams: cfg.Streaming.MaxStreams, ClientBufferBytes: cfg.Streaming.ClientBufferBytes, UDPReceiveBuffer: cfg.Streaming.UDPReceiveBuffer, StreamBuffer: cfg.Streaming.StreamBuffer, MaxBufferedBytes: cfg.Streaming.MaxBufferedBytes, InactivityTimeout: cfg.Streaming.InactivityTimeout.Value(), Disabled: !cfg.Streaming.Enabled})
 	if err != nil {
 		return err
 	}
@@ -165,7 +170,7 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 	if err = store.Put(ctx, "last_startup_configuration", string(snapshot)); err != nil {
 		return err
 	}
-	logger.Info("management listening", "component", "http", "address", management.Addr().String(), "phase", 3, "version", buildinfo.Version, "saved_settings_ignored", ignore)
+	logger.Info("management listening", "component", "http", "address", management.Addr().String(), "phase", 4, "version", buildinfo.Version, "saved_settings_ignored", ignore)
 	service := httpapi.New(httpapi.Options{Config: cfg, Store: store, Logger: logger, Assets: web.Assets(), Streams: engine, Settings: settings, Monitor: monitor, Events: store, DroppedLogs: func() uint64 { return sink.Dropped.Load() }, ConfigPath: configurationPath(args, getenv), Listeners: statuses})
 	results := make(chan error, len(listeners))
 	for i, l := range listeners {
