@@ -77,7 +77,11 @@ func TestStagedPortFailureRestoresPlaybackAndKeepsManagement(t *testing.T) {
 			t.Error("serve did not shut down")
 		}
 	}()
-	client := http.Client{Timeout: 500 * time.Millisecond}
+	// Own the connection pool so test requests cannot leave idle or speculative
+	// connections behind when the server's one-second shutdown deadline starts.
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	client := http.Client{Transport: transport, Timeout: 500 * time.Millisecond}
 	url := "http://127.0.0.1:" + strconv.Itoa(base.Management.Port)
 	deadline := time.Now().Add(4 * time.Second)
 	ready := false
@@ -85,7 +89,11 @@ func TestStagedPortFailureRestoresPlaybackAndKeepsManagement(t *testing.T) {
 		response, e := client.Get(url + "/health")
 		if e == nil {
 			ready = response.StatusCode == 200
+			_, readErr := io.Copy(io.Discard, response.Body)
 			response.Body.Close()
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
 			if ready {
 				break
 			}
@@ -106,6 +114,9 @@ func TestStagedPortFailureRestoresPlaybackAndKeepsManagement(t *testing.T) {
 		LastError string              `json:"last_error"`
 	}
 	if err = json.NewDecoder(response.Body).Decode(&view); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.Copy(io.Discard, response.Body); err != nil {
 		t.Fatal(err)
 	}
 	if view.Active.Network.HTTPPort != base.Network.HTTPPort || view.Settings.Network.HTTPPort != base.Network.HTTPPort || view.LastError == "" {
