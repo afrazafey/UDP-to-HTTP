@@ -16,7 +16,7 @@ import zipfile
 
 root=Path(__file__).resolve().parents[1]
 def run(args,**kwargs):return subprocess.run(args,cwd=root,check=True,**kwargs)
-parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--version',default='0.4.0-dev');parser.add_argument('--go',default='go');parser.add_argument('--targets',default='linux/amd64,linux/arm64,windows/amd64');args=parser.parse_args()
+parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--version',default='0.4.1-dev');parser.add_argument('--go',default='go');parser.add_argument('--targets',default='linux/amd64,linux/arm64,windows/amd64');args=parser.parse_args()
 if not re.fullmatch(r'[0-9][0-9A-Za-z.+-]*',args.version):parser.error('invalid version')
 sha=run(['git','rev-parse','HEAD'],capture_output=True,text=True).stdout.strip()
 dirty=bool(run(['git','status','--porcelain'],capture_output=True,text=True).stdout.strip())
@@ -47,7 +47,7 @@ for target in args.targets.split(','):
     binary=build/name;env=dict(os.environ,GOOS=system,GOARCH=arch,CGO_ENABLED='0');run([args.go,'build','-trimpath','-ldflags',ldflags,'-o',str(binary),'./cmd/udphttp-proxy'],env=env)
     entries={'udphttp-proxy'+('.exe' if system=='windows' else ''):binary.read_bytes()}
     entries.update(notices)
-    for path in docs:
+    for path in [*docs, *(root/'docs/screenshots').glob('*.png')]:
         if path.is_file():entries[path.relative_to(root).as_posix()]=path.read_bytes()
     entries['BUILD.json']=json.dumps({'version':args.version,'source_commit':sha,'dirty':dirty,'built':date,'target':target,'production_acceptance':'pending'},indent=2).encode()
     if system=='windows':
@@ -68,4 +68,4 @@ with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
         if name and (root/name).is_file():
             info=zipfile.ZipInfo(name,date_time=datetime.datetime.fromtimestamp(max(epoch,315532800),datetime.timezone.utc).timetuple()[:6]);info.compress_type=zipfile.ZIP_DEFLATED;archive.writestr(info,(root/name).read_bytes())
 outputs.append(source)
-manifest=build/'SHA256SUMS-phase4';manifest.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in outputs),encoding='utf-8');print(manifest)
+manifest=build/'SHA256SUMS';manifest.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in outputs),encoding='utf-8',newline='\n');print(manifest)

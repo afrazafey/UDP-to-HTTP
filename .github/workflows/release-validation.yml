@@ -8,11 +8,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - {os: ubuntu-24.04, arch: amd64}
+          - {os: ubuntu-24.04-arm, arch: arm64}
+          - {os: windows-latest, arch: amd64}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.x'
@@ -26,8 +31,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
+        shell: bash
         working-directory: frontend
       - run: npm run typecheck && npm test && npm run build
+        shell: bash
         working-directory: frontend
       - name: Formatting, vet, and JSON test results
         shell: bash
@@ -45,31 +52,45 @@ jobs:
           set -o pipefail
           go test -race -json ./... | tee build/go-race.jsonl
       - name: Coverage
-        run: go test -coverprofile=build/coverage.out ./...
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p build/coverage
+          go test "-covermode=atomic" "-coverprofile=build/coverage/coverage.out" ./...
+          go tool cover "-func=build/coverage/coverage.out" | tee build/coverage/summary.txt
       - name: Vulnerability check
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Build platform candidates
+        shell: bash
         run: |
-          python scripts/build-release.py --version 0.4.0-dev
+          python scripts/build-release.py --version 0.4.1-dev
           python scripts/verify-artifacts.py
+      - name: Browser layouts and screenshots
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          npm install --prefix .tools/phase41-browser --no-save playwright-core@1.65.1
+          node .tools/phase41-browser/node_modules/playwright-core/cli.js install --with-deps chromium
+          node scripts/check-dashboard.mjs build/udphttp-proxy-linux-amd64 build/dashboard-screenshots ./.tools/phase41-browser/node_modules/playwright-core
       - name: Linux smoke and resource load
         if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          python3 scripts/linux-smoke.py --binary build/udphttp-proxy-linux-amd64
-          python3 scripts/load-test.py --binary build/udphttp-proxy-linux-amd64
-          dpkg-deb --info 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
-          dpkg-deb --contents 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
-          sudo dpkg -i 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
-          /usr/bin/udphttp-proxy version
-          sudo systemd-analyze verify deploy/udphttp-proxy.service
-          sudo systemctl restart udphttp-proxy
-          curl --retry 10 --retry-delay 1 --retry-connrefused --fail http://127.0.0.1:8080/health
-          echo '# upgrade-preservation-check' | sudo tee -a /etc/udphttp-proxy/config.yaml
-          sudo dpkg -i 'build/udphttp-proxy_0.4.0~dev_amd64.deb'
-          grep upgrade-preservation-check /etc/udphttp-proxy/config.yaml
-          sudo dpkg --remove udphttp-proxy
-          test -f /etc/udphttp-proxy/config.yaml
-          sudo dpkg --purge udphttp-proxy
+          python3 scripts/linux-smoke.py --binary "build/udphttp-proxy-linux-$ARCH"
+          python3 scripts/load-test.py --binary "build/udphttp-proxy-linux-$ARCH"
+      - name: Debian archive, clean install, upgrade and systemd lifecycle
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          bash scripts/test-debian-package.sh "build/udphttp-proxy_0.4.1~dev_$ARCH.deb" "$ARCH" | tee build/debian-acceptance.txt
+      - name: Service diagnostics
+        if: ${{ failure() && runner.os == 'Linux' }}
+        shell: bash
+        run: sudo journalctl -u udphttp-proxy -n 150 --no-pager > build/debian-journal.txt
       - name: Native Windows service and resource load
         if: runner.os == 'Windows'
         shell: pwsh

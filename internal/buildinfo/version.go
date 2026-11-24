@@ -7,7 +7,7 @@ import (
 
 var StartedAt = time.Now().UTC()
 
-var Version = "0.4.0-dev"
+var Version = "0.4.1-dev"
 var Commit = ""
 var Date = ""
 

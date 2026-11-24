@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CirclePause, CirclePlay, CircleSlash, Download, Ellipsis, ListFilter, Plus, Radio, RefreshCw, Upload } from "lucide-react";
 import type { Channel } from "../Streaming";
 import type { OperationsData, Stream } from "../types/operations";
 import { mutate } from "../services/api";
@@ -6,15 +7,18 @@ import { duration, rate, timestamp } from "../utils/format";
 import {
   Badge,
   Button,
+  DataTable,
   Dialog,
   Empty,
   ErrorBanner,
   Field,
   Panel,
+  Stat,
   useAction,
 } from "../components/ui";
 import { ChannelDialog } from "../components/streams/ChannelDialog";
 import { StreamControls } from "../components/streams/StreamControls";
+import { ChannelIdentity } from "../components/streams/ChannelMenu";
 export function StreamsPage({
   data,
   refresh,
@@ -28,6 +32,7 @@ export function StreamsPage({
   const [bulk, setBulk] = useState<string | null>(null);
   const [copy, setCopy] = useState<Channel | null>(null);
   const [state, setState] = useState("");
+  const [enabled, setEnabled] = useState("");
   const [source, setSource] = useState("");
   const [sort, setSort] = useState("name");
   const [descending, setDescending] = useState(false);
@@ -38,7 +43,8 @@ export function StreamsPage({
   const items = data.streams
     .filter(
       (s) =>
-        (!state || s.state === state) &&
+        (!state || (s.health ?? s.state) === state || s.state === state) &&
+        (!enabled || s.channel.enabled === (enabled === "enabled")) &&
         (!group || s.channel.group === group) &&
         (!source || s.channel.source_type === source) &&
         `${s.channel.name} ${s.channel.id} ${s.channel.source_address} ${s.channel.interface}`
@@ -76,186 +82,218 @@ export function StreamsPage({
   const pages = Math.max(1, Math.ceil(items.length / 20));
   const current = Math.min(page, pages - 1);
   const visible = items.slice(current * 20, current * 20 + 20);
+  const advancedFilters = Number(Boolean(enabled)) + Number(Boolean(source));
   return (
     <>
       {action.error && <ErrorBanner>{action.error}</ErrorBanner>}
-      <div className="op-toolbar">
-        <Field label="Search streams">
-          <input
-            placeholder="Name, source or interface"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(0);
-            }}
-          />
-        </Field>
-        <Field label="Filter channel group">
-          <select
-            value={group}
-            onChange={(e) => {
-              setGroup(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="">All groups</option>
-            {[
-              ...new Set(
-                data.streams.map((s) => s.channel.group || "").filter(Boolean),
-              ),
-            ]
-              .sort()
-              .map((g) => (
-                <option key={g}>{g}</option>
-              ))}
-          </select>
-        </Field>
-        <Button
-          onClick={() =>
-            setSelection(new Set(visible.map((s) => s.channel.id)))
-          }
-        >
-          Select visible
-        </Button>
-        <Button onClick={() => setSelection(new Set())}>Clear selection</Button>
-        {(["enable", "disable", "delete"] as const).map((operation) => (
-          <Button
-            key={operation}
-            disabled={action.busy || !selection.size}
-            onClick={() => setBulk(operation)}
-          >
-            Bulk {operation}
-          </Button>
-        ))}
-        <Field label="Filter stream status">
-          <select
-            value={state}
-            onChange={(e) => {
-              setState(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="">All states</option>
-            {[
-              "running",
-              "stopped",
-              "disabled",
-              "waiting",
-              "starting",
-              "retrying",
-              "error",
-            ].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Source type filter">
-          <select
-            value={source}
-            onChange={(e) => {
-              setSource(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="">All sources</option>
-            <option value="multicast">Multicast</option>
-            <option value="unicast">Unicast</option>
-          </select>
-        </Field>
-        <Field label="Sort streams">
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            {[
-              "name",
-              "order",
-              "state",
-              "source",
-              "clients",
-              "input",
-              "output",
-            ].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </Field>
-        <Button onClick={() => setDescending(!descending)}>
-          {descending ? "Descending" : "Ascending"}
-        </Button>
-        <Button onClick={refresh}>Refresh streams</Button>
-        <Button className="primary" onClick={() => setEditing("new")}>
-          Add stream
-        </Button>
+      <div className="op-page-metrics op-channel-metrics" aria-label="Channel health summary">
+        <Stat label="Total channels" value={data.streams.length} icon={<Radio size={18} />} />
+        <Stat label="Running" value={data.streams.filter(stream => stream.state === "running").length} icon={<CirclePlay size={18} />} />
+        <Stat label="Recovering" value={data.streams.filter(stream => (stream.health ?? stream.state) === "recovering").length} icon={<RefreshCw size={18} />} />
+        <Stat label="Offline" value={data.streams.filter(stream => stream.channel.enabled && (stream.health === "offline" || (!stream.health && stream.state === "stopped"))).length} icon={<CirclePause size={18} />} />
+        <Stat label="Disabled" value={data.streams.filter(stream => !stream.channel.enabled).length} icon={<CircleSlash size={18} />} />
       </div>
       <Panel
-        title="Configured streams"
-        description={`${items.length} matching channels • one shared receiver per source identity`}
+        title="Configured channels"
+        description={`${items.length} matching channels`}
+        action={<div className="op-page-actions">
+          <a className="op-button" href="#/import-export">
+            <Upload size={15} /> Import channels
+          </a>
+          <a className="op-button" href="#/import-export?mode=export">
+            <Download size={15} /> Export playlist
+          </a>
+          <Button className="primary" onClick={() => setEditing("new")}>
+            <Plus size={16} /> Add channel
+          </Button>
+        </div>}
       >
+        <div className="op-toolbar op-filter-bar">
+          <Field label="Search streams">
+            <input
+              placeholder="Name, source or interface"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(0);
+              }}
+            />
+          </Field>
+          <Field label="Filter channel group">
+            <select
+              value={group}
+              onChange={(e) => {
+                setGroup(e.target.value);
+                setPage(0);
+              }}
+            >
+              <option value="">All groups</option>
+              {[
+                ...new Set(
+                  data.streams.map((s) => s.channel.group || "").filter(Boolean),
+                ),
+              ]
+                .sort()
+                .map((g) => (
+                  <option key={g}>{g}</option>
+                ))}
+            </select>
+          </Field>
+          <Field label="Filter stream status">
+            <select
+              value={state}
+              onChange={(e) => {
+                setState(e.target.value);
+                setPage(0);
+              }}
+            >
+              <option value="">All states</option>
+              {[
+                "healthy",
+                "recovering",
+                "degraded",
+                "offline",
+                "waiting_for_source",
+                "running",
+                "stopped",
+                "disabled",
+                "waiting",
+                "starting",
+                "retrying",
+                "error",
+              ].map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </Field>
+          <details className="op-channel-filters">
+            <summary><ListFilter size={16} aria-hidden="true" /> More filters{advancedFilters > 0 ? ` (${advancedFilters})` : ""}</summary>
+            <div className="op-filter-options">
+              <Field label="Enabled state">
+                <select
+                  value={enabled}
+                  onChange={(e) => {
+                    setEnabled(e.target.value);
+                    setPage(0);
+                  }}
+                >
+                  <option value="">All channels</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </Field>
+              <Field label="Source type filter">
+                <select
+                  value={source}
+                  onChange={(e) => {
+                    setSource(e.target.value);
+                    setPage(0);
+                  }}
+                >
+                  <option value="">All sources</option>
+                  <option value="multicast">Multicast</option>
+                  <option value="unicast">Unicast</option>
+                </select>
+              </Field>
+              <Field label="Sort streams">
+                <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                  {[
+                    "name",
+                    "order",
+                    "state",
+                    "source",
+                    "clients",
+                    "input",
+                    "output",
+                  ].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </Field>
+              <Button className="op-sort-direction" onClick={() => setDescending(!descending)}>
+                {descending ? "Descending" : "Ascending"}
+              </Button>
+            </div>
+          </details>
+        </div>
+        {data.streams.length > 0 && (
+          <div className="op-selection-bar">
+            <strong aria-live="polite">{selection.size} selected</strong>
+            <Button disabled={!visible.length} onClick={() => setSelection(new Set(visible.map(s => s.channel.id)))}>
+              Select visible
+            </Button>
+            {selection.size > 0 && (
+              <>
+                <Button onClick={() => setSelection(new Set())}>Clear selection</Button>
+                {(["enable", "disable", "delete"] as const).map(operation => (
+                  <Button key={operation} disabled={action.busy} onClick={() => setBulk(operation)}>
+                    Bulk {operation}
+                  </Button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
         {visible.length ? (
-          <div className="op-table-wrap">
-            <table className="op-stream-table">
-              <thead>
-                <tr>
-                  <th>Select</th>
-                  <th>Channel</th>
-                  <th>Source</th>
-                  <th>Type / interface</th>
-                  <th>Status</th>
-                  <th>Clients</th>
-                  <th>Input</th>
-                  <th>Output</th>
-                  <th>Uptime</th>
-                  <th>Last packet</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((s) => (
-                  <tr key={s.channel.id}>
-                    <td data-label="Select">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select channel ${s.channel.name}`}
-                        checked={selection.has(s.channel.id)}
-                        onChange={(e) =>
-                          setSelection((old) => {
-                            const next = new Set(old);
-                            e.target.checked
-                              ? next.add(s.channel.id)
-                              : next.delete(s.channel.id);
-                            return next;
-                          })
-                        }
-                      />
-                    </td>
-                    <td data-label="Channel">
-                      <a href={`#/streams/${s.channel.id}`}>
-                        <strong>{s.channel.name}</strong>
-                      </a>
-                      <small>{s.channel.id}</small>
-                      <small>{s.channel.group}</small>
-                    </td>
-                    <td data-label="Source" className="mono">
-                      {s.channel.source_address}:{s.channel.source_port}
-                    </td>
-                    <td data-label="Type / interface">
-                      {s.channel.source_type}
-                      <small>{s.channel.interface}</small>
-                    </td>
-                    <td data-label="Status">
-                      <Badge state={s.health ?? s.state} />
-                      {s.errors.length > 0 && (
-                        <small>{s.errors.length} recent events</small>
-                      )}
-                    </td>
-                    <td data-label="Clients">
-                      {s.clients} / {s.channel.max_clients}
-                    </td>
-                    <td data-label="Input">{rate(s.input_bitrate)}</td>
-                    <td data-label="Output">{rate(s.output_bitrate)}</td>
-                    <td data-label="Uptime">{duration(s.uptime_seconds)}</td>
-                    <td data-label="Last packet">
-                      {timestamp(s.last_packet_at)}
-                    </td>
-                    <td data-label="Actions">
+          <DataTable>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">Select</th>
+                <th role="columnheader" scope="col">Channel</th>
+                <th role="columnheader" scope="col">Source</th>
+                <th role="columnheader" scope="col">Status</th>
+                <th role="columnheader" scope="col">Clients</th>
+                <th role="columnheader" scope="col">Throughput</th>
+                <th role="columnheader" scope="col">Receiver activity</th>
+                <th role="columnheader" scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody role="rowgroup">
+              {visible.map((s) => (
+                <tr role="row" key={s.channel.id}>
+                  <td role="cell" data-label="Select">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select channel ${s.channel.name}`}
+                      checked={selection.has(s.channel.id)}
+                      onChange={(e) =>
+                        setSelection((old) => {
+                          const next = new Set(old);
+                          e.target.checked
+                            ? next.add(s.channel.id)
+                            : next.delete(s.channel.id);
+                          return next;
+                        })
+                      }
+                    />
+                  </td>
+                  <td role="cell" data-label="Channel" data-primary>
+                    <ChannelIdentity stream={s} />
+                  </td>
+                  <td role="cell" data-label="Source">
+                    <span className="mono">{s.channel.source_address}:{s.channel.source_port}</span>
+                    <small>{s.channel.source_type}{s.channel.interface && ` · ${s.channel.interface}`}</small>
+                  </td>
+                  <td role="cell" data-label="Status">
+                    <Badge state={s.health ?? s.state} />
+                    {s.errors.length > 0 && (
+                      <small>{s.errors.length} recent events</small>
+                    )}
+                  </td>
+                  <td role="cell" data-label="Clients">
+                    {s.clients} / {s.channel.max_clients}
+                  </td>
+                  <td role="cell" data-label="Throughput">
+                    <span className="op-cell-line">UDP {rate(s.input_bitrate)}</span>
+                    <span className="op-cell-line">HTTP {rate(s.output_bitrate)}</span>
+                  </td>
+                  <td role="cell" data-label="Receiver activity">
+                    <span className="op-cell-line">Uptime {duration(s.uptime_seconds)}</span>
+                    <small>Last packet {timestamp(s.last_packet_at)}</small>
+                  </td>
+                  <td role="cell" data-label="Actions">
+                    <details className="op-channel-actions">
+                      <summary aria-label={`Actions for ${s.channel.name}`}><Ellipsis size={17} aria-hidden="true" /> Actions</summary>
                       <StreamControls
                         stream={s}
                         data={data}
@@ -275,12 +313,12 @@ export function StreamsPage({
                       >
                         Duplicate channel
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
         ) : (
           <Empty
             title={
@@ -292,7 +330,7 @@ export function StreamsPage({
             Add a source approved by the server policy to begin receiving.
           </Empty>
         )}
-        <div className="op-pagination">
+        {pages > 1 && <div className="op-pagination">
           <Button disabled={current === 0} onClick={() => setPage(current - 1)}>
             Previous
           </Button>
@@ -305,7 +343,7 @@ export function StreamsPage({
           >
             Next
           </Button>
-        </div>
+        </div>}
       </Panel>
       {editing && (
         <ChannelDialog

@@ -106,6 +106,10 @@ export function StreamDetailsPage({
             items={[
               ["Channel ID", c.id],
               ["Channel name", c.name],
+              ["Group", c.group || "Ungrouped"],
+              ["TVG ID", c.tvg_id || "Unconfigured"],
+              ["TVG name", c.tvg_name || "Unconfigured"],
+              ["Description", c.description || "None"],
               ["UDP source", `${c.source_address}:${c.source_port}`],
               ["Source type", c.source_type],
               ["Receiving interface", c.interface],
@@ -188,7 +192,7 @@ export function StreamDetailsPage({
         </div>
       </Panel>
       <Panel
-        title="Recent channel errors"
+        title="Recent channel events"
         action={
           <a className="op-link" href={`#/logs?stream_id=${id}`}>
             View channel logs
@@ -211,6 +215,46 @@ export function StreamDetailsPage({
         ) : (
           <Empty title="No retained receiver errors" />
         )}
+      </Panel>
+      <Panel
+        title="Connected viewers"
+        action={
+          <a href="#/clients" className="op-link">
+            Manage clients
+          </a>
+        }
+      >
+        <Definition
+          items={data.clients
+            .filter((client) => client.channel_id === id)
+            .map((client) => [
+              `${client.remote_ip} · #${client.id}`,
+              `${duration(client.duration_seconds)} · ${bytes(client.bytes_delivered)} · ${rate(client.output_bitrate)}`,
+            ])}
+        />
+        {!data.clients.some((client) => client.channel_id === id) && (
+          <Empty title="No connected viewers" />
+        )}
+      </Panel>
+      <Panel title="Recovery history">
+        <Definition
+          items={[
+            ["Last successful recovery", timestamp(stream.last_recovery_at)],
+            [
+              "Recovery failures",
+              stream.counters.recovery_failures ?? "Unavailable",
+            ],
+            [
+              "Receiver restarts",
+              stream.counters.receiver_restarts ?? "Unavailable",
+            ],
+          ]}
+        />
+        <div className="op-prose">
+          <a href={`#/logs?stream_id=${id}&component=receiver`}>
+            View receiver events
+          </a>
+        </div>
       </Panel>
       {editing && (
         <ChannelDialog

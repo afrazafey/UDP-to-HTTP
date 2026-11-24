@@ -22,8 +22,13 @@ def metadata(data,target,binary):
     obj=json.loads(data);assert obj['target']==target;assert re.fullmatch('[0-9a-f]{40}',obj['source_commit']);assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ',obj['built']);assert isinstance(obj['dirty'],bool)
     for value in (obj['version'],obj['built'],obj['source_commit']+('+dirty' if obj['dirty'] else '')):assert value.encode() in binary, f'missing linked metadata {value}'
 report={'checksums_verified':0,'linux_bundles':0,'windows_bundles':0,'source_archives':0,'debian_packages':0,'native_dpkg_installation':'not performed by static inspection','native_runtime':'not established by static inspection'}
-for line in (root/'SHA256SUMS-phase4').read_text().splitlines():
+lines=(root/'SHA256SUMS').read_text().splitlines()
+assert lines, 'empty checksum manifest'
+seen_names=set()
+for line in lines:
     expected,name=line.split('  ',1);assert Path(name).name==name;path=root/name;assert path.is_file();assert hashlib.sha256(path.read_bytes()).hexdigest()==expected,f'checksum mismatch {name}';report['checksums_verified']+=1
+    assert name not in seen_names, f'duplicate manifest entry {name}'
+    seen_names.add(name)
     if name.endswith('.tar.gz'):
         arch='arm64' if 'arm64' in name else 'amd64'
         with tarfile.open(path,'r:gz') as tar:
@@ -47,11 +52,25 @@ for line in (root/'SHA256SUMS-phase4').read_text().splitlines():
             header=data[offset:offset+60];assert len(header)==60 and header[58:]==b'`\n';member=header[:16].decode().strip().rstrip('/');size=int(header[48:58]);offset+=60;members[member]=data[offset:offset+size];offset+=size+size%2
         assert members['debian-binary']==b'2.0\n';arch='arm64' if 'arm64' in name else 'amd64'
         with tarfile.open(fileobj=io.BytesIO(members['control.tar.gz']),mode='r:gz') as control:
+            for entry in control: entry.name=entry.name.removeprefix('./')
             text=control.extractfile('control').read().decode();assert f'Architecture: {arch}\n' in text;assert 'Package: udphttp-proxy\n' in text
             assert control.extractfile('conffiles').read()==b'/etc/udphttp-proxy/config.yaml\n'
             for hook in ('postinst','prerm','postrm'):assert control.getmember(hook).mode&0o111 and b'\r\n' not in control.extractfile(hook).read()
         with tarfile.open(fileobj=io.BytesIO(members['data.tar.gz']),mode='r:gz') as payload:
-            for member in payload.getmembers():safe(member.name)
+            directories=set()
+            for member in payload.getmembers():
+                member.name=member.name.removeprefix('./')
+                safe(member.name)
+                assert member.uid==0 and member.gid==0
+                assert member.isfile() or member.isdir(), f'unexpected entry type: {member.name}'
+                parent=str(PurePosixPath(member.name).parent)
+                assert parent=='.' or parent in directories, f'missing parent directory before {member.name}'
+                if member.isdir():
+                    assert member.mode==0o755, f'invalid directory mode: {member.name}'
+                    directories.add(member.name)
+            assert {'etc/udphttp-proxy','usr/bin','usr/lib/systemd/system','usr/share/doc/udphttp-proxy'} <= directories
+            assert payload.getmember('etc/udphttp-proxy/config.yaml').mode==0o644
+            assert payload.getmember('usr/bin/udphttp-proxy').mode==0o755
             elf(payload.extractfile('usr/bin/udphttp-proxy').read(),arch)
             assert 'etc/udphttp-proxy/config.yaml' in payload.getnames();assert 'usr/share/doc/udphttp-proxy/docs/PHASE4_REPORT.md' in payload.getnames()
             unit=payload.extractfile('usr/lib/systemd/system/udphttp-proxy.service').read();assert b'User=udphttp-proxy' in unit

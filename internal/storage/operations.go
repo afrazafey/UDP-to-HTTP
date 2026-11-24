@@ -101,6 +101,10 @@ func (s *Store) QueryEvents(ctx context.Context, f events.Filter) ([]events.Entr
 		clauses = append(clauses, "stream_id=?")
 		args = append(args, f.StreamID)
 	}
+	if f.Component != "" {
+		clauses = append(clauses, "component=?")
+		args = append(args, f.Component)
+	}
 	if !f.Since.IsZero() {
 		clauses = append(clauses, "time>=?")
 		args = append(args, f.Since.UTC().Format(eventTimeLayout))
