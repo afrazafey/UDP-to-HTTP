@@ -125,7 +125,7 @@ func (s *Service) authorizeManagement(r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if site != "" && site != "same-origin" && site != "same-site" && site != "none" {
+	if site != "" && site != "same-origin" && site != "none" {
 		return errors.New("Cross-site administration denied")
 	}
 	return nil

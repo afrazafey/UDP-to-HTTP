@@ -1,10 +1,73 @@
 name: Reusable release validation
 on:
   workflow_call:
+    inputs:
+      version:
+        type: string
+        default: 0.4.2-rc.1
 permissions:
   contents: read
 jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: '1.27.x'
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies and build the dashboard
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Run supply-chain gates and create SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/security
+          go mod verify
+          go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./... | tee build/security/govulncheck.txt
+          npm --prefix frontend audit --audit-level=high --json > build/security/npm-audit.json
+          npm --prefix frontend audit --omit=dev --audit-level=high --json > build/security/npm-audit-production.json
+          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0 app -json -output build/security/go-sbom.json .
+          npm --prefix frontend sbom --sbom-format cyclonedx --omit=dev > build/security/frontend-sbom.json
+      - name: Build and verify immutable candidate artifacts
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          python scripts/build-release.py --version "$VERSION" --output build/candidate --evidence build/security
+          python scripts/verify-artifacts.py --directory build/candidate
+          (cd build/candidate && sha256sum --strict --check SHA256SUMS)
+      - name: Scan candidate archives for secrets
+        shell: bash
+        run: |
+          go run github.com/zricethezav/gitleaks/v8@v8.30.0 dir build/candidate --no-banner --redact=100 --max-archive-depth=3 --report-format=json --report-path=build/security/artifact-secrets.json
+          python scripts/scan-release-secrets.py build/candidate --report build/security/credential-patterns.json
+          cp build/security/artifact-secrets.json build/candidate/
+          cp build/security/credential-patterns.json build/candidate/
+          (cd build/candidate && sha256sum artifact-secrets.json credential-patterns.json >> SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase42-candidate
+          path: build/candidate/
+          if-no-files-found: error
+          retention-days: 30
+
   verify:
+    needs: package
     strategy:
       fail-fast: false
       matrix:
@@ -13,80 +76,92 @@ jobs:
           - {os: ubuntu-24.04-arm, arch: arm64}
           - {os: windows-latest, arch: amd64}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version: '1.27.x'
-          cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
-      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: phase42-candidate
+          path: build/candidate
+      - run: python scripts/verify-artifacts.py --directory build/candidate
+      - run: npm ci && npm run typecheck && npm test && npm run build
         shell: bash
         working-directory: frontend
-      - run: npm run typecheck && npm test && npm run build
-        shell: bash
-        working-directory: frontend
-      - name: Formatting, vet, and JSON test results
+      - name: Go module integrity, formatting, vet, and tests
         shell: bash
         run: |
-          mkdir -p build
+          set -euo pipefail
+          go mod verify
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
-          set -o pipefail
           go test -json ./... | tee build/go-tests.jsonl
       - name: Race detector
         shell: bash
         env:
           CGO_ENABLED: '1'
         run: |
-          set -o pipefail
+          set -euo pipefail
           go test -race -json ./... | tee build/go-race.jsonl
       - name: Coverage
         if: ${{ !cancelled() }}
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p build/coverage
           go test "-covermode=atomic" "-coverprofile=build/coverage/coverage.out" ./...
           go tool cover "-func=build/coverage/coverage.out" | tee build/coverage/summary.txt
-      - name: Vulnerability check
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
-      - name: Build platform candidates
-        shell: bash
-        run: |
-          python scripts/build-release.py --version 0.4.1-dev
-          python scripts/verify-artifacts.py
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Browser layouts and screenshots
         if: matrix.os == 'ubuntu-24.04'
         shell: bash
+        env:
+          UDPHTTP_CAPTURE_ROUTES: '1'
         run: |
-          npm install --prefix .tools/phase41-browser --no-save playwright-core@1.65.1
-          node .tools/phase41-browser/node_modules/playwright-core/cli.js install --with-deps chromium
-          node scripts/check-dashboard.mjs build/udphttp-proxy-linux-amd64 build/dashboard-screenshots ./.tools/phase41-browser/node_modules/playwright-core
+          npm install --prefix .tools/phase42-browser --no-save playwright-core@1.65.1
+          node .tools/phase42-browser/node_modules/playwright-core/cli.js install --with-deps chromium
+          node scripts/check-dashboard.mjs build/candidate/udphttp-proxy-linux-amd64 build/dashboard-screenshots ./.tools/phase42-browser/node_modules/playwright-core
       - name: Linux smoke and resource load
         if: runner.os == 'Linux'
         shell: bash
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          python3 scripts/linux-smoke.py --binary "build/udphttp-proxy-linux-$ARCH"
-          python3 scripts/load-test.py --binary "build/udphttp-proxy-linux-$ARCH"
-      - name: Debian archive, clean install, upgrade and systemd lifecycle
+          python scripts/linux-smoke.py --binary "build/candidate/udphttp-proxy-linux-$ARCH"
+          python scripts/load-test.py --binary "build/candidate/udphttp-proxy-linux-$ARCH" --duration 30
+      - name: Comparative playback baseline
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline=$(mktemp -d)
+          trap 'rm -rf -- "$baseline"' EXIT
+          git archive dbda0c0b8ab6272522847b436c19ad78a2091735 | tar -x -C "$baseline"
+          (cd "$baseline" && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$baseline/udphttp-proxy" ./cmd/udphttp-proxy)
+          python scripts/load-test.py --binary "$baseline/udphttp-proxy" --duration 30 --report build/load-baseline.json
+      - name: Debian archive, clean install, upgrades, and systemd lifecycle
         if: runner.os == 'Linux'
         shell: bash
         env:
           ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
         run: |
-          bash scripts/test-debian-package.sh "build/udphttp-proxy_0.4.1~dev_$ARCH.deb" "$ARCH" | tee build/debian-acceptance.txt
+          set -euo pipefail
+          version=${VERSION/-rc/~rc}
+          bash scripts/test-debian-package.sh "build/candidate/udphttp-proxy_${version}_$ARCH.deb" "$ARCH" | tee build/debian-acceptance.txt
       - name: Service diagnostics
         if: ${{ failure() && runner.os == 'Linux' }}
         shell: bash
@@ -95,13 +170,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./scripts/test-windows-service.ps1 -Binary ./build/udphttp-proxy-windows-amd64.exe
+          ./scripts/test-windows-service.ps1 -Binary ./build/candidate/udphttp-proxy-windows-amd64.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/load-test.py --binary build/udphttp-proxy-windows-amd64.exe
+          python scripts/load-test.py --binary build/candidate/udphttp-proxy-windows-amd64.exe --duration 30
           exit $LASTEXITCODE
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: phase4-validation-${{ matrix.os }}
-          path: build/
+          name: phase42-validation-${{ matrix.os }}
+          path: |
+            build/*.json*
+            build/*.txt
+            build/coverage/
+            build/dashboard-screenshots/
           retention-days: 14

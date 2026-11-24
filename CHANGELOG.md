@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2-rc.1
+
+- Distinguish the deployment environment, service health, and release maturity in the dashboard. Attribute UDPHTTP Proxy to Afraaz in the UI, CLI, and package metadata. [Developer website](https://afraaz.xyz)
+- Strengthen management-origin and JSON checks, response headers, diagnostic redaction, playlist export validation, backup paths, and fresh Windows installation ACLs.
+- Pin CI actions and validate the same candidate bytes across platforms. Generate dependency inventories and checksums and gate stable promotion on native evidence.
+
 ## 0.4.1 — validation candidate, unreleased
 
 - Reworked the operations shell, overview, channel forms, import and playlists, and responsive management screens.

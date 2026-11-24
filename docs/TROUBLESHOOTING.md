@@ -1,5 +1,9 @@
 # Troubleshooting
 
+For a denied proxied dashboard request, compare the browser origin with the exact configured trusted origin. The browser fetch must be same-origin or direct navigation. Review the proxy's authenticated, allowlisted host and its overwritten forwarding headers. [Nginx configuration](../deploy/NGINX.md)
+
+If Windows Application Control blocks an unsigned candidate, use an approved runner or a signed executable. The installer requires unused application directories. Follow the upgrade instructions for installations with existing state. [Windows installation](INSTALL_WINDOWS.md)
+
 An older development package that fails with `config.yaml.dpkg-new` and a missing parent directory needs a rebuilt package with the corrected archive layout. Inspect the replacement package and follow the upgrade steps if a prior installation exists. A Go coverage failure referring to package `.out` requires quoting the complete coverage flag or using the Bash CI command. [Debian packaging](DEBIAN_PACKAGING.md) · [Coverage commands](CI_CD_VALIDATION.md)
 
 Begin with the actual service log and `/health`; do not reset SQLite or broaden allowlists to suppress an error. A successful syntax check, UDP bind, multicast membership, received datagram, valid TS packet and decoded player session prove different things.

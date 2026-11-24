@@ -306,7 +306,7 @@ export function LegacyApp() {
           </div>
           <div className="sidebar-version">
             <span>{phase2 ? "Streaming release" : "Foundation release"}</span>
-            <span className="mono">{status?.version ?? "Phase 1"}</span>
+            <span className="mono">{status?.version ?? "Unavailable"}</span>
           </div>
         </div>
       </aside>

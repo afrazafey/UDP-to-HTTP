@@ -2,9 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,7 +12,10 @@ import (
 	"time"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
+	"golang.org/x/net/netutil"
 )
+
+const playbackConnectionHeadroom = 32
 
 func streamError(w http.ResponseWriter, err error) {
 	code := 400
@@ -36,19 +37,10 @@ func streamError(w http.ResponseWriter, err error) {
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
-func decodeChannel(w http.ResponseWriter, r *http.Request) (stream.Channel, error) {
+func decodeChannel(r *http.Request) (stream.Channel, error) {
 	var c stream.Channel
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&c); err != nil {
-		return c, err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return c, errors.New("body must contain exactly one JSON object")
-	}
-	return c, nil
+	err := decodeStrict(r, &c)
+	return c, err
 }
 func (s *Service) connectedClients(w http.ResponseWriter, r *http.Request) {
 	if s.options.Streams == nil {
@@ -69,7 +61,7 @@ func (s *Service) streamManagement(w http.ResponseWriter, r *http.Request) {
 		case "GET", "HEAD":
 			writeJSON(w, 200, map[string]any{"streams": m.List()})
 		case "POST":
-			c, err := decodeChannel(w, r)
+			c, err := decodeChannel(r)
 			if err != nil {
 				streamError(w, err)
 				return
@@ -146,7 +138,7 @@ func (s *Service) streamManagement(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"stream": v})
 	case "PUT":
-		c, err := decodeChannel(w, r)
+		c, err := decodeChannel(r)
 		if err != nil {
 			streamError(w, err)
 			return
@@ -295,7 +287,10 @@ func (s *Service) ServePlayback(ctx context.Context, listener net.Listener) erro
 	server := &http.Server{Handler: s.StreamHandler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: c.ReadTimeout.Value(), IdleTimeout: c.IdleTimeout.Value(), MaxHeaderBytes: 16 << 10, BaseContext: func(net.Listener) context.Context { return ctx }, ErrorLog: slog.NewLogLogger(s.options.Logger.Handler(), slog.LevelError)}
 	defer server.Close()
 	result := make(chan error, 1)
-	go func() { result <- server.Serve(listener) }()
+	// Include idle, unauthenticated and in-flight connections. The manager
+	// still enforces the global viewer limit across both playback listeners.
+	connectionLimit := s.options.Config.Streaming.MaxClients + playbackConnectionHeadroom
+	go func() { result <- server.Serve(netutil.LimitListener(listener, connectionLimit)) }()
 	select {
 	case err := <-result:
 		if errors.Is(err, http.ErrServerClosed) {

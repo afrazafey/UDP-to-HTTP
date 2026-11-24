@@ -2,6 +2,7 @@ import type { OperationsData } from "../types/operations";
 import { Clock3, Database, Monitor, Server } from "lucide-react";
 import { bytes, duration, timestamp } from "../utils/format";
 import { Badge, CopyButton, DataTable, Definition, Empty, Panel, Stat } from "../components/ui";
+import { DeveloperAttribution, EnvironmentIndicator } from "../components/ui/Branding";
 export function SystemPage({ data }: { data: OperationsData }) {
   const s = data.system;
   const diagnostic = JSON.stringify(
@@ -68,7 +69,7 @@ export function SystemPage({ data }: { data: OperationsData }) {
           <Definition
             items={[
               ["Build commit", s.commit],
-              ["Build date", s.build_date],
+              ["Build date", Number.isFinite(Date.parse(s.build_date)) ? timestamp(s.build_date) : "Unavailable"],
               ["Go runtime", s.go_version],
               ["Process ID", s.process_id],
               ["Started", timestamp(s.started_at)],
@@ -128,6 +129,15 @@ export function SystemPage({ data }: { data: OperationsData }) {
             ))}
           </tbody>
         </DataTable> : <Empty title="No interfaces reported" />}
+      </Panel>
+      <Panel title="About">
+        <Definition items={[
+          ["Application", s.application ?? "UDPHTTP Proxy"],
+          ["Release maturity", s.release_maturity ?? (s.version.includes("-") ? "Development or candidate build" : "Versioned build")],
+          ["Deployment environment", <EnvironmentIndicator value={s.environment} />],
+          ["Developer", <DeveloperAttribution />],
+          ["Year", new Date().getFullYear()],
+        ]} />
       </Panel>
     </>
   );

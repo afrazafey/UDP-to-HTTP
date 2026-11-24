@@ -22,7 +22,10 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/operations"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
+	"golang.org/x/net/netutil"
 )
+
+const managementConnectionLimit = 64
 
 type HealthStore interface{ Ping(context.Context) error }
 type Options struct {
@@ -37,6 +40,7 @@ type Options struct {
 	Events      events.Repository
 	DroppedLogs func() uint64
 	ConfigPath  string
+	Environment string
 	Listeners   []ListenerStatus
 }
 type Service struct {
@@ -93,7 +97,7 @@ func New(o Options) *Service {
 			writeJSON(w, 404, map[string]string{"error": "Use the separate playback listener for streaming URLs"})
 			return
 		}
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Streaming is unavailable in Phase 1"})
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Streaming is unavailable"})
 	}
 	mux.HandleFunc("/udp/", unavailable)
 	mux.HandleFunc("/live/", unavailable)
@@ -116,7 +120,8 @@ func (s *Service) protect(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; worker-src 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), display-capture=()")
 		if err := s.authorizeManagement(r); err != nil {
 			writeJSON(w, 403, map[string]string{"error": err.Error()})
 			return
@@ -131,7 +136,8 @@ func (s *Service) protect(next http.Handler) http.Handler {
 					writeJSON(w, 403, map[string]string{"error": "A valid local CSRF token is required"})
 					return
 				}
-				if r.Header.Get("Content-Type") != "application/json" {
+				contentType, err := singleHeader(r, "Content-Type")
+				if err != nil || contentType != "application/json" {
 					writeJSON(w, 415, map[string]string{"error": "Content-Type must be application/json"})
 					return
 				}
@@ -157,7 +163,7 @@ func (s *Service) protect(next http.Handler) http.Handler {
 				return
 			}
 			w.Header().Set("Allow", "GET, HEAD")
-			writeJSON(w, 405, map[string]string{"error": "Read-only Phase 1 API"})
+			writeJSON(w, 405, map[string]string{"error": "Method not allowed"})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -225,6 +231,8 @@ func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"service": "udphttp-proxy", "version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "phase": phase,
+		"application": buildinfo.Name, "developer": buildinfo.Developer, "website": buildinfo.Website,
+		"environment": buildinfo.Environment(s.options.Environment), "release_maturity": buildinfo.Maturity(),
 		"status": status, "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "platform": runtime.GOOS + "/" + runtime.GOARCH, "go_version": runtime.Version(),
 		"components":    map[string]string{"management": "available", "storage": map[bool]string{true: "ready", false: "unavailable"}[ok], "streaming": streaming, "remote_administration": remote, "metrics": metrics, "log_viewer": logViewer, "configuration_editor": editor},
 		"configuration": activeConfig,
@@ -269,7 +277,7 @@ func (s *Service) Serve(ctx context.Context, listener net.Listener) error {
 	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: c.ReadTimeout.Value(), WriteTimeout: c.WriteTimeout.Value(), IdleTimeout: c.IdleTimeout.Value(), MaxHeaderBytes: 16 << 10, BaseContext: func(net.Listener) context.Context { return ctx }, ErrorLog: slog.NewLogLogger(s.options.Logger.Handler(), slog.LevelError)}
 	defer server.Close()
 	result := make(chan error, 1)
-	go func() { result <- server.Serve(listener) }()
+	go func() { result <- server.Serve(netutil.LimitListener(listener, managementConnectionLimit)) }()
 	select {
 	case err := <-result:
 		if errors.Is(err, http.ErrServerClosed) {

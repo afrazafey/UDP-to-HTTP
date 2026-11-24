@@ -21,6 +21,11 @@ def windows(data):
 def metadata(data,target,binary):
     obj=json.loads(data);assert obj['target']==target;assert re.fullmatch('[0-9a-f]{40}',obj['source_commit']);assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ',obj['built']);assert isinstance(obj['dirty'],bool)
     for value in (obj['version'],obj['built'],obj['source_commit']+('+dirty' if obj['dirty'] else '')):assert value.encode() in binary, f'missing linked metadata {value}'
+    if 'application' in obj:
+        assert obj['application']=='UDPHTTP Proxy' and obj['developer']=='Afraaz' and obj['website']=='https://afraaz.xyz'
+        assert obj['developer'].encode() in binary and obj['website'].encode() in binary
+    if obj.get('windows_version_resource'):
+        assert 'FileVersion'.encode('utf-16le') in binary and 'Afraaz'.encode('utf-16le') in binary
 report={'checksums_verified':0,'linux_bundles':0,'windows_bundles':0,'source_archives':0,'debian_packages':0,'native_dpkg_installation':'not performed by static inspection','native_runtime':'not established by static inspection'}
 lines=(root/'SHA256SUMS').read_text().splitlines()
 assert lines, 'empty checksum manifest'
@@ -54,6 +59,8 @@ for line in lines:
         with tarfile.open(fileobj=io.BytesIO(members['control.tar.gz']),mode='r:gz') as control:
             for entry in control: entry.name=entry.name.removeprefix('./')
             text=control.extractfile('control').read().decode();assert f'Architecture: {arch}\n' in text;assert 'Package: udphttp-proxy\n' in text
+            if 'Version: 0.4.2' in text:
+                assert 'Maintainer: Afraaz\n' in text and 'Homepage: https://afraaz.xyz\n' in text
             assert control.extractfile('conffiles').read()==b'/etc/udphttp-proxy/config.yaml\n'
             for hook in ('postinst','prerm','postrm'):assert control.getmember(hook).mode&0o111 and b'\r\n' not in control.extractfile(hook).read()
         with tarfile.open(fileobj=io.BytesIO(members['data.tar.gz']),mode='r:gz') as payload:

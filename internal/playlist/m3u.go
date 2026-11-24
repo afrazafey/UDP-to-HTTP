@@ -30,6 +30,7 @@ type Entry struct {
 
 var attribute = regexp.MustCompile(`^([a-zA-Z0-9_-]+)="([^"\r\n]*)"(?:\s+|$)`)
 var slug = regexp.MustCompile(`[^a-z0-9_-]+`)
+var exportID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 func source(raw string) (string, string, int, error) {
 	if strings.ContainsAny(raw, "\r\n\t ") {
@@ -256,8 +257,11 @@ func Generate(channels []stream.Channel, host string, primary, secondary int, po
 				return "", errors.New("unsafe playlist attribute")
 			}
 		}
-		if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`).MatchString(c.ID) {
+		if !exportID.MatchString(c.ID) {
 			return "", errors.New("unsafe channel ID")
+		}
+		if err := stream.ValidateLogoURL(c.LogoURL); err != nil {
+			return "", err
 		}
 		selected := primary
 		if port == "secondary" || (port == "preferred" && c.PreferredPlaybackPort == "secondary") {

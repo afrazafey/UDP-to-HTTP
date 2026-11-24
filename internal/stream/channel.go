@@ -78,11 +78,8 @@ func (c Channel) Validate(p Policy) error {
 	if c.PreferredPlaybackPort != "" && c.PreferredPlaybackPort != "primary" && c.PreferredPlaybackPort != "secondary" {
 		return errors.New("preferred_playback_port must be primary or secondary")
 	}
-	if c.LogoURL != "" {
-		u, err := url.Parse(c.LogoURL)
-		if err != nil || len(c.LogoURL) > 2048 || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.LogoURL, "\"\r\n\t") {
-			return errors.New("logo_url must be a bounded HTTP(S) URL without credentials or control characters")
-		}
+	if err := ValidateLogoURL(c.LogoURL); err != nil {
+		return err
 	}
 	if !channelID.MatchString(c.ID) {
 		return errors.New("id must contain 1..64 letters, digits, hyphens or underscores")
@@ -160,6 +157,18 @@ func (c Channel) Validate(p Policy) error {
 	}
 	if c.Startup != "on_demand" && c.Startup != "always" {
 		return errors.New("startup must be on_demand or always")
+	}
+	return nil
+}
+
+// ValidateLogoURL validates stored metadata without fetching the URL.
+func ValidateLogoURL(value string) error {
+	if value == "" {
+		return nil
+	}
+	u, err := url.Parse(value)
+	if err != nil || len(value) > 2048 || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(value, "\"\r\n\t") {
+		return errors.New("logo_url must be a bounded HTTP(S) URL without credentials or control characters")
 	}
 	return nil
 }

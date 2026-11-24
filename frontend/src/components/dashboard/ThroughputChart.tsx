@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Sample } from "../../types/operations";
 import { rate, timestamp } from "../../utils/format";
 import { Empty } from "../ui";
@@ -22,7 +22,7 @@ function clockTime(time: Date) {
   });
 }
 
-export function ThroughputChart({
+export const ThroughputChart = memo(function ThroughputChart({
   samples,
   label = "Network throughput",
   heading,
@@ -172,4 +172,17 @@ export function ThroughputChart({
       </details>
     </div>
   );
-}
+}, (previous, next) =>
+  previous.label === next.label &&
+  previous.heading?.title === next.heading?.title &&
+  previous.heading?.description === next.heading?.description &&
+  (previous.samples === next.samples || (
+    previous.samples.length === next.samples.length &&
+    previous.samples.every((sample, index) => {
+      const nextSample = next.samples[index];
+      return sample.time === nextSample.time &&
+        sample.input_bitrate === nextSample.input_bitrate &&
+        sample.output_bitrate === nextSample.output_bitrate;
+    })
+  )),
+);

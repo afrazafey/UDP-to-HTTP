@@ -47,6 +47,7 @@ import { SystemPage } from "./pages/SystemPage";
 import { PlaylistsPage } from "./pages/PlaylistsPage";
 import { ChannelDialog } from "./components/streams/ChannelDialog";
 import { Badge } from "./components/ui";
+import { DeveloperAttribution, EnvironmentIndicator } from "./components/ui/Branding";
 import { bytes, duration } from "./utils/format";
 const navigation = [
   { path: "/overview", name: "Overview", icon: House },
@@ -96,6 +97,7 @@ export function OperationsApp({ status }: { status: Status }) {
         : "running"
       : status.status;
   const sample = data?.dashboard.sample;
+  const environment = data?.system.environment ?? status.environment;
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     const apply = () => {
@@ -123,6 +125,7 @@ export function OperationsApp({ status }: { status: Status }) {
           href={`#${target}`}
           className={selected.path === target ? "active" : ""}
           aria-current={selected.path === target ? "page" : undefined}
+          aria-label={collapsed ? name : undefined}
           title={collapsed ? name : undefined}
           onClick={() => setMobile(false)}
         >
@@ -241,7 +244,7 @@ export function OperationsApp({ status }: { status: Status }) {
         <aside className="op-sidebar">
           <a className="op-brand" href="#/overview">
             <span className="op-brand-symbol">
-              <Radio size={24} />
+              <Radio size={24} aria-hidden="true" />
             </span>
             <span>
               <strong>UDPHTTP</strong>
@@ -283,17 +286,22 @@ export function OperationsApp({ status }: { status: Status }) {
                   <dd>{bytes(sample?.rss_bytes)}</dd>
                 </div>
               </dl>
+              <div className="op-sidebar-attribution">
+                <EnvironmentIndicator value={environment} />
+                <DeveloperAttribution />
+              </div>
             </section>
             <Button
+              className="op-sidebar-toggle"
               onClick={() => setCollapsed(!collapsed)}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {collapsed ? (
                 <PanelLeftOpen size={18} />
               ) : (
                 <PanelLeftClose size={18} />
               )}
-              <span>{collapsed ? "Expand" : "Collapse sidebar"}</span>
             </Button>
           </div>
         </aside>
@@ -368,7 +376,7 @@ export function OperationsApp({ status }: { status: Status }) {
                   {paused ? <Play size={15} /> : <Pause size={15} />}{" "}
                   {paused ? "Resume monitoring" : "Pause monitoring"}
                 </Button>
-                <Button onClick={poll.refresh} disabled={poll.loading}>
+                <Button className="op-refresh-button" onClick={poll.refresh} disabled={poll.loading} aria-busy={poll.loading}>
                   <RefreshCw size={15} />
                   {poll.loading ? "Refreshing…" : "Refresh now"}
                 </Button>
@@ -453,7 +461,7 @@ export function OperationsApp({ status }: { status: Status }) {
                   {new Date(data.dashboard.sample.time).toLocaleTimeString()} ·
                   bounded history
                 </span>
-                <span>Development release · Linux acceptance pending</span>
+                <EnvironmentIndicator value={environment} />
                 <a href="#/system">{status.version}</a>
               </footer>
             )}
@@ -465,6 +473,13 @@ export function OperationsApp({ status }: { status: Status }) {
           title="Navigation"
           variant="drawer"
           onClose={() => setMobile(false)}
+          footer={
+            <div className="op-drawer-status">
+              <span><Badge state={serviceState} /> {status.version}</span>
+              <EnvironmentIndicator value={environment} />
+              <DeveloperAttribution />
+            </div>
+          }
         >
           {links}
         </Dialog>

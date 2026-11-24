@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowDownToLine,
@@ -16,7 +16,7 @@ import {
   Server,
   Users,
 } from "lucide-react";
-import type { NetworkInterface, OperationsData, Stream } from "../types/operations";
+import type { LogEntry, NetworkInterface, OperationsData, Stream } from "../types/operations";
 import { duration, rate, timestamp } from "../utils/format";
 import { Badge, Empty, ErrorBanner, Panel, useAction } from "../components/ui";
 import { ThroughputChart } from "../components/dashboard/ThroughputChart";
@@ -155,7 +155,49 @@ function ServiceHealth({ data, serviceState }: { data: OperationsData; serviceSt
   );
 }
 
-export function OverviewPage({
+const RecentActivity = memo(function RecentActivity({ activity }: { activity: LogEntry[] }) {
+  return (
+    <Panel
+      title="Recent Activity"
+      className="op-overview-activity"
+      action={<a href="#/logs" className="op-link">View Logs <ArrowRight size={14} aria-hidden="true" /></a>}
+    >
+      {activity.length ? (
+        <ul className="op-activity-list">
+          {activity.slice(0, 4).map((event) => {
+            const warning = ["error", "warn", "warning"].includes(event.level);
+            const Icon = warning ? CircleAlert
+              : event.component === "receiver" ? Radio
+              : ["client_connect", "client_disconnect"].includes(String(event.context?.event_type)) ? Users
+              : event.component === "stream" ? Activity
+              : Info;
+            const tone = warning ? "warning" : event.component === "receiver" ? "good" : "info";
+            return (
+              <li key={event.id}>
+                <span className={`op-activity-icon ${tone}`}><Icon size={16} aria-hidden="true" /></span>
+                <span>{event.message}</span>
+                <time dateTime={event.time} title={timestamp(event.time)}>
+                  {new Date(event.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                </time>
+              </li>
+            );
+          })}
+        </ul>
+      ) : <Empty title="No retained activity" />}
+    </Panel>
+  );
+}, ({ activity: previous }, { activity: next }) =>
+  previous.length === next.length &&
+  previous.every((event, index) => {
+    const item = next[index];
+    return event.id === item.id && event.time === item.time &&
+      event.message === item.message && event.level === item.level &&
+      event.component === item.component &&
+      event.context?.event_type === item.context?.event_type;
+  }),
+);
+
+export const OverviewPage = memo(function OverviewPage({
   data,
   refresh,
   serviceState,
@@ -250,34 +292,7 @@ export function OverviewPage({
           </div>
           <div className="op-overview-secondary">
             <ServiceHealth data={data} serviceState={serviceState} />
-            <Panel
-              title="Recent Activity"
-              className="op-overview-activity"
-              action={<a href="#/logs" className="op-link">View Logs <ArrowRight size={14} aria-hidden="true" /></a>}
-            >
-              {dashboard.activity.length ? (
-                <ul className="op-activity-list">
-                  {dashboard.activity.slice(0, 4).map((event) => {
-                    const warning = ["error", "warn", "warning"].includes(event.level);
-                    const Icon = warning ? CircleAlert
-                      : event.component === "receiver" ? Radio
-                      : ["client_connect", "client_disconnect"].includes(String(event.context?.event_type)) ? Users
-                      : event.component === "stream" ? Activity
-                      : Info;
-                    const tone = warning ? "warning" : event.component === "receiver" ? "good" : "info";
-                    return (
-                      <li key={event.id}>
-                        <span className={`op-activity-icon ${tone}`}><Icon size={16} aria-hidden="true" /></span>
-                        <span>{event.message}</span>
-                        <time dateTime={event.time} title={timestamp(event.time)}>
-                          {new Date(event.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-                        </time>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : <Empty title="No retained activity" />}
-            </Panel>
+            <RecentActivity activity={dashboard.activity} />
           </div>
         </div>
       </div>
@@ -286,4 +301,4 @@ export function OverviewPage({
       )}
     </>
   );
-}
+});

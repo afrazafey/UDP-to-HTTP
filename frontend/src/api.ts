@@ -36,6 +36,7 @@ export interface Configuration {
 }
 export interface Status {
   service: string;
+  environment?: string;
   version: string;
   commit: string;
   build_date: string;

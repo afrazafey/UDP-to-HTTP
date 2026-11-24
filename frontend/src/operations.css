@@ -2577,3 +2577,83 @@
     grid-template-rows: 145px auto;
   }
 }
+.op-environment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.op-environment > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--subtle);
+}
+.op-environment.is-production > span {
+  background: var(--green);
+}
+.op-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.op-attribution a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.op-sidebar-attribution {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.op-sidebar-bottom {
+  position: relative;
+}
+.op-sidebar-bottom .op-sidebar-toggle {
+  position: absolute;
+  top: 25px;
+  right: 7px;
+  width: 29px;
+  min-height: 29px;
+  padding: 4px;
+}
+.op-shell.is-collapsed .op-sidebar-bottom .op-sidebar-toggle {
+  position: static;
+  justify-self: center;
+}
+.op-sidebar .op-service-summary dl div {
+  min-height: 26px;
+}
+.op-sidebar nav a svg {
+  flex: none;
+}
+.op-drawer-status {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  font-size: 0.8125rem;
+}
+.op-shell .op-refresh-button {
+  min-inline-size: 118px;
+}
+.op-overview-metric {
+  grid-template-rows: minmax(47px, auto) minmax(21px, auto);
+}
+.op-overview-throughput .op-empty {
+  min-height: 204px;
+}
+.op-shell .op-overview-channels .op-channel-symbol {
+  background: var(--blue-bg);
+  color: var(--accent);
+}
+@media (max-width: 400px) {
+  .op-shell .op-refresh-button {
+    min-inline-size: 108px;
+  }
+}

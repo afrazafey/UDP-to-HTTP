@@ -101,6 +101,9 @@ export interface Dashboard {
 }
 export interface SystemInfo {
   database_schema?: number | null;
+  application?: string;
+  environment?: string;
+  release_maturity?: string;
   version: string;
   commit: string;
   build_date: string;

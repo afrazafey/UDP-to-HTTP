@@ -1,16 +1,18 @@
 # Windows installation and native service
 
-The Phase 4.1 browser layout check runs independently of Windows SCM acceptance. Match the `0.4.1-dev` archive and SHA-256 manifest from the same build. [Validation report](PHASE4_1_REPORT.md)
+The installer requires unused Program Files and ProgramData application roots and creates them with protected ACLs. LocalService can modify the data and log directories. Use the upgrade instructions for existing installations. The executable remains unsigned and is subject to the host's signing and approval policies.
+
+The Phase 4.2 browser layout check runs independently of Windows SCM acceptance. Match the `0.4.2-rc.1` archive and SHA-256 manifest from the same build. [Validation report](PHASE4_2_REPORT.md)
 
 Targets: Windows 10/11 x64 and Windows Server 2019+. Windows ARM64 is not released. Native service execution/control and packet-info reception are implemented, but **service installation/runtime support is an acceptance gate**, not a claim from compilation. See [PHASE4_REPORT.md](PHASE4_REPORT.md) for the actual host test results. Do not disable Application Control or Defender to run untrusted builds.
 
 ## Interactive start
 
-Obtain `udphttp-proxy_0.4.1-dev_windows_amd64.zip` and `SHA256SUMS` from an approved artifact set. No release is published by this task. Compare the ZIP's `Get-FileHash -Algorithm SHA256` value with its exact manifest entry before extracting:
+Obtain `udphttp-proxy_0.4.2-rc.1_windows_amd64.zip` and `SHA256SUMS` from an approved artifact set. No release is published by this task. Compare the ZIP's `Get-FileHash -Algorithm SHA256` value with its exact manifest entry before extracting:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\udphttp-proxy_0.4.1-dev_windows_amd64.zip
-Expand-Archive -LiteralPath .\udphttp-proxy_0.4.1-dev_windows_amd64.zip -DestinationPath .\udphttp-proxy
+Get-FileHash -Algorithm SHA256 -LiteralPath .\udphttp-proxy_0.4.2-rc.1_windows_amd64.zip
+Expand-Archive -LiteralPath .\udphttp-proxy_0.4.2-rc.1_windows_amd64.zip -DestinationPath .\udphttp-proxy
 Set-Location .\udphttp-proxy
 .\udphttp-proxy.exe version
 .\udphttp-proxy.exe interfaces
@@ -74,7 +76,7 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python scripts/build-release.py --version 0.4.1-dev
+python scripts/build-release.py --version 0.4.2-rc.1
 & .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 

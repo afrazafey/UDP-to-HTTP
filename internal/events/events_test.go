@@ -3,6 +3,7 @@ package events
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"sync"
@@ -48,4 +49,26 @@ func TestRedactionAndStructuredCapture(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("event was not captured")
+}
+
+func TestRedactsEntireSensitiveHeadersAndStoredContext(t *testing.T) {
+	record := Sanitize(Entry{
+		Message: "Authorization: Basic fake-fixture-one\nCookie: id=fake-fixture-two; key=fake-fixture-three\n\x1b[31mDone",
+		Context: map[string]any{
+			"nested": map[string]any{
+				"api_key": "fake-fixture-four",
+				"note":    "token=\"fake-fixture-five trailing value\"",
+			},
+		},
+	})
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("fake-fixture")) || strings.ContainsAny(record.Message, "\x1b\n") {
+		t.Fatal("retained event contained credentials or unsafe control characters")
+	}
+	if !strings.Contains(record.Message, "Done") {
+		t.Fatal("ordinary diagnostic content was lost")
+	}
 }

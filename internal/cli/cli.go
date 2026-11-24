@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/buildinfo"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
@@ -35,7 +36,11 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, getenv func(
 		if len(args) != 1 {
 			return errors.New("version takes no arguments")
 		}
-		fmt.Fprintf(out, "udphttp-proxy %s (commit %s, built %s)\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
+		date := buildinfo.Date
+		if date == "" {
+			date = "unknown"
+		}
+		fmt.Fprintf(out, "udphttp-proxy %s (commit %s, built %s, %s/%s)\nDeveloped by %s · %s\n", buildinfo.Version, buildinfo.Commit, date, runtime.GOOS, runtime.GOARCH, buildinfo.Developer, buildinfo.Website)
 		return nil
 	case "interfaces":
 		if len(args) != 1 {

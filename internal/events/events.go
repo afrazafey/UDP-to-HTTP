@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Entry struct {
@@ -31,13 +33,17 @@ type Repository interface {
 	QueryEvents(context.Context, Filter) ([]Entry, int, error)
 }
 
-var secret = regexp.MustCompile(`(?i)(password|token|secret|authorization|cookie|credential|signature|signed)`)
-var assignment = regexp.MustCompile(`(?i)(password|token|secret|authorization|cookie|credential|signature)([=: ]+)([^\s,&]+)`)
+var secret = regexp.MustCompile(`(?i)(password|token|secret|authorization|cookie|credential|signature|signed|api[_-]?key|private[_-]?key)`)
+var assignment = regexp.MustCompile(`(?i)(password|token|secret|credential|signature|api[_-]?key|private[_-]?key)[[:blank:]]*[:=][[:blank:]]*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&]+)`)
+var headers = regexp.MustCompile(`(?i)\b(proxy-authorization|authorization|set-cookie|cookie)[[:blank:]]*[:=][^\r\n]*(?:\r?\n[[:blank:]]+[^\r\n]*)*`)
+var privateKeys = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*`)
 var links = regexp.MustCompile(`https?://[^\s]+`)
-var bearer = regexp.MustCompile(`(?i)Bearer\s+[^\s,;]+`)
+var credentials = regexp.MustCompile(`(?i)\b(Bearer|Basic)\s+[^\s,;]+`)
 
 func Redact(value string) string {
-	value = bearer.ReplaceAllString(value, "Bearer [redacted]")
+	value = privateKeys.ReplaceAllString(value, "[redacted private key]")
+	value = headers.ReplaceAllString(value, "${1}=[redacted]")
+	value = credentials.ReplaceAllString(value, "${1} [redacted]")
 	value = links.ReplaceAllStringFunc(value, func(s string) string {
 		u, e := url.Parse(s)
 		if e != nil {
@@ -49,10 +55,64 @@ func Redact(value string) string {
 		return u.String()
 	})
 	value = assignment.ReplaceAllString(value, "${1}=[redacted]")
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return ' '
+		}
+		return r
+	}, value)
 	if len(value) > 2048 {
 		value = value[:2048]
+		for !utf8.ValidString(value) {
+			value = value[:len(value)-1]
+		}
 	}
 	return value
+}
+
+func Sanitize(e Entry) Entry {
+	e.Message = Redact(e.Message)
+	e.Component = Redact(e.Component)
+	e.StreamID = Redact(e.StreamID)
+	e.Level = Redact(e.Level)
+	if e.Context != nil {
+		e.Context = sanitizeContext(e.Context, 0)
+	}
+	return e
+}
+
+func sanitizeContext(input map[string]any, depth int) map[string]any {
+	result := make(map[string]any, min(len(input), 64))
+	for key, value := range input {
+		if len(result) >= 64 {
+			break
+		}
+		result[Redact(key)] = sanitizeValue(key, value, depth+1)
+	}
+	return result
+}
+
+func sanitizeValue(key string, value any, depth int) any {
+	if secret.MatchString(key) {
+		return "[redacted]"
+	}
+	if depth > 8 {
+		return "[truncated context]"
+	}
+	switch item := value.(type) {
+	case map[string]any:
+		return sanitizeContext(item, depth)
+	case []any:
+		result := make([]any, min(len(item), 64))
+		for i := range result {
+			result[i] = sanitizeValue("", item[i], depth+1)
+		}
+		return result
+	case string:
+		return Redact(item)
+	default:
+		return value
+	}
 }
 
 type Sink struct {
