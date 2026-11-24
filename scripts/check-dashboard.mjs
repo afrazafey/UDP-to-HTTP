@@ -86,9 +86,9 @@ try {
         if (Object.hasOwn(routes,path)) {
           res.writeHead(200,{"Content-Type":"application/json"});
           res.end(JSON.stringify(routes[path]));
-        } else if (path==="/" || /^\/assets\/[\w.-]+\.(css|js)$/.test(path)) {
+        } else if (path==="/" || path==="/favicon.svg" || /^\/assets\/[\w.-]+\.(css|js)$/.test(path)) {
           const file=path==="/" ? "index.html" : path.slice(1);
-          const type=file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html";
+          const type=path==="/favicon.svg" ? "image/svg+xml" : file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html";
           const body=await readFile(join("internal/web/dist",file));
           res.writeHead(200,{"Content-Type":type,"Content-Security-Policy":"default-src 'self'; object-src 'none'; frame-ancestors 'none'"});
           res.end(body);

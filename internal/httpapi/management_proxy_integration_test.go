@@ -37,7 +37,7 @@ func TestEmbeddedDashboardThroughTrustedProxy(t *testing.T) {
 	defer transport.CloseIdleConnections()
 	proxy := httptest.NewServer(&httputil.ReverseProxy{Transport: transport, Rewrite: func(p *httputil.ProxyRequest) {
 		p.SetURL(target)
-		p.Out.Host = target.Host
+		p.Out.Host = p.In.Host
 		p.Out.Header.Set("X-Forwarded-Host", p.In.Host)
 		p.Out.Header.Set("X-Forwarded-Proto", "http")
 		p.Out.Header.Set("X-Forwarded-For", "192.168.10.102")
@@ -53,8 +53,9 @@ func TestEmbeddedDashboardThroughTrustedProxy(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.Host = "192.168.10.103"
-		r.Header.Set("Origin", origin)
-		r.Header.Set("Referer", lanOrigin+"/")
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
 		response, err := client.Do(r)
 		if err != nil {
 			t.Fatal(err)
@@ -70,7 +71,9 @@ func TestEmbeddedDashboardThroughTrustedProxy(t *testing.T) {
 		}
 		return response.StatusCode, contentType, body
 	}
-	code, contentType, html := get("/", lanOrigin)
+	// Browser navigation has no Origin, while the Vite CORS-mode assets
+	// send it. The dashboard's referrer policy suppresses Referer.
+	code, contentType, html := get("/", "")
 	if code != 200 || contentType != "text/html" {
 		t.Fatalf("embedded HTML: %d %s %s; build frontend before tests", code, contentType, html)
 	}
@@ -95,6 +98,12 @@ func TestEmbeddedDashboardThroughTrustedProxy(t *testing.T) {
 	}
 	if !seenJS || !seenCSS {
 		t.Fatal("both embedded JavaScript and CSS must be served")
+	}
+	if code, contentType, _ := get("/favicon.svg", ""); code != 200 || contentType != "image/svg+xml" {
+		t.Fatalf("proxied favicon: %d %s", code, contentType)
+	}
+	if code, contentType, _ := get(string(assets[0][1]), "http://evil.example"); code != 403 || contentType != "application/json" {
+		t.Fatalf("cross-origin asset request: %d %s", code, contentType)
 	}
 	if code, _, _ := get("/api/v1/status", lanOrigin); code != 200 {
 		t.Fatal("proxied API status", code)

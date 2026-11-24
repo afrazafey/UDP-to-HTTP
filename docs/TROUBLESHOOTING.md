@@ -1,6 +1,6 @@
 # Troubleshooting
 
-For a denied proxied dashboard request, compare the browser origin with the exact configured trusted origin. The browser fetch must be same-origin or direct navigation. Review the proxy's authenticated, allowlisted host and its overwritten forwarding headers. [Nginx configuration](../deploy/NGINX.md)
+If the dashboard goes blank after Nginx sign-in and the browser reports `application/json` for CSS or JS, inspect the failed request's response body. A 403 with `Cross-origin administration denied` points to the management origin or forwarding configuration. [Blank dashboard after signing in](../deploy/NGINX.md#blank-dashboard-after-signing-in)
 
 If Windows Application Control blocks an unsigned candidate, use an approved runner or a signed executable. The installer requires unused application directories. Follow the upgrade instructions for installations with existing state. [Windows installation](INSTALL_WINDOWS.md)
 

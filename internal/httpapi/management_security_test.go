@@ -180,6 +180,33 @@ func TestDirectManagementWithProxyEnabledAndDisabled(t *testing.T) {
 	}
 }
 
+func TestExternalHostRequiresProxyTrustOnInitialNavigation(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		s := testService()
+		enableManagementProxy(s)
+		s.options.Config.Management.ReverseProxy.Enabled = enabled
+		for _, forwarded := range []bool{false, true} {
+			r := req(http.MethodGet, "/")
+			if forwarded {
+				r = proxiedRequest(http.MethodGet, "/")
+				r.Header.Del("Origin")
+				r.Header.Del("Referer")
+				r.Header.Del("Sec-Fetch-Site")
+			}
+			r.Host = "192.168.10.103"
+			w := httptest.NewRecorder()
+			s.Handler().ServeHTTP(w, r)
+			want := http.StatusForbidden
+			if enabled && forwarded {
+				want = http.StatusOK
+			}
+			if w.Code != want {
+				t.Errorf("proxy enabled=%v, forwarding headers=%v: want %d, got %d: %s", enabled, forwarded, want, w.Code, w.Body)
+			}
+		}
+	}
+}
+
 func TestManagementProxyCSRFAndSettingsMutation(t *testing.T) {
 	s := operationsService(t, enableManagementProxy)
 	w := httptest.NewRecorder()
