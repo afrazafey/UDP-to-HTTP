@@ -1,12 +1,16 @@
 # UDPHTTP Proxy
 
+A lightweight, security-focused and high-performance UDP-to-HTTP IPTV streaming proxy with a modern network management dashboard.
+
+**Developed by Afraaz** · [afraaz.xyz](https://afraaz.xyz)
+
 UDPHTTP Proxy converts authorized IPv4 multicast or unicast **MPEG-TS over UDP** into HTTP streams for VLC, Android TV and other IPTV players. Multiple viewers share one receiver per configured source identity. An embedded React/TypeScript dashboard manages channels, health, imports, playlists and diagnostics; SQLite persists configuration and bounded operational events.
 
-**Phase 4.1 / 0.4.1-dev validation candidate.** The verified TRACE URBAN deployment is the IPTV regression reference. Native Debian and Windows service lifecycle results remain release gates. [Phase 4.1 validation report](docs/PHASE4_1_REPORT.md)
+**Phase 4.2 / 0.4.2-rc.1 validation candidate.** The verified TRACE URBAN deployment is the IPTV regression reference. Native Debian and Windows service lifecycle results remain release gates. [Phase 4.2 validation report](docs/PHASE4_2_REPORT.md)
 
-![Desktop operations dashboard at 1360px in Edge with live synthetic UDP traffic](docs/screenshots/overview-1360.png)
+![Production-branded dashboard at 1360px in Edge with a live synthetic Windows stream](docs/screenshots/phase42-overview-1360.png)
 
-Additional Edge captures from the same isolated daemon show the tablet and mobile layouts, dark theme, and mobile channel form. [Tablet](docs/screenshots/overview-768.png) · [Mobile](docs/screenshots/overview-390.png) · [Dark mode](docs/screenshots/overview-dark-1440.png) · [Channel form](docs/screenshots/channel-form-390.png)
+Edge captures of the same isolated daemon show the tablet and mobile layouts and dark theme. [Tablet](docs/screenshots/phase42-overview-768.png) · [Mobile](docs/screenshots/phase42-overview-390.png) · [Dark mode](docs/screenshots/phase42-overview-dark-1440.png)
 
 ## 1. Overview
 
@@ -52,7 +56,7 @@ Download an approved candidate's actual files and `SHA256SUMS`, verify them, the
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
-sudo apt install './udphttp-proxy_0.4.1~dev_amd64.deb'
+sudo apt install './udphttp-proxy_0.4.2~rc.1_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 sudo systemctl status udphttp-proxy --no-pager
 curl --fail http://127.0.0.1:8080/health
@@ -67,13 +71,13 @@ This task creates artifacts locally, not a published tag. After an approved rele
 ```sh
 sudo apt update
 sudo apt install -y curl ca-certificates
-VERSION=0.4.1-dev
-TAG=v0.4.1-dev # Replace with the approved tag that actually contains these artifacts.
+VERSION=0.4.2-rc.1
+TAG=v0.4.2-rc.1 # Replace with the approved tag that actually contains these artifacts.
 BASE="https://github.com/afrazafey/UDP-to-HTTP/releases/download/$TAG"
 curl --fail --location --output SHA256SUMS "$BASE/SHA256SUMS"
-curl --fail --location --output 'udphttp-proxy_0.4.1~dev_amd64.deb' "$BASE/udphttp-proxy_0.4.1~dev_amd64.deb"
+curl --fail --location --output 'udphttp-proxy_0.4.2~rc.1_amd64.deb' "$BASE/udphttp-proxy_0.4.2~rc.1_amd64.deb"
 sha256sum --check --ignore-missing SHA256SUMS
-sudo apt install './udphttp-proxy_0.4.1~dev_amd64.deb'
+sudo apt install './udphttp-proxy_0.4.2~rc.1_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 ```
 
@@ -85,7 +89,7 @@ Use the same verified `.deb` installation and systemd commands as Ubuntu. Select
 
 ## 7. Windows installation
 
-Verify `udphttp-proxy_0.4.1-dev_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
+Verify `udphttp-proxy_0.4.2-rc.1_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
 
 ```powershell
 .\udphttp-proxy.exe interfaces
@@ -118,11 +122,11 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python3 scripts/build-release.py --version 0.4.1-dev
-dpkg-deb --info './build/udphttp-proxy_0.4.1~dev_amd64.deb'
+python3 scripts/build-release.py --version 0.4.2-rc.1
+dpkg-deb --info './build/udphttp-proxy_0.4.2~rc.1_amd64.deb'
 ```
 
-`scripts/build-deb.sh amd64 VERSION BINARY` remains a wrapper around the portable Debian builder. Linux CI separately inspects, installs, upgrades, removes and purges packages. Set `SOURCE_DATE_EPOCH` for deterministic archive timestamps. Binaries link version/actual source SHA/build time; dirty checkouts are labeled. Source `go run` without release metadata explicitly says unlinked-source rather than inventing a build timestamp.
+`scripts/build-deb.sh amd64 VERSION BINARY` remains a wrapper around the portable Debian builder. Linux CI separately inspects, installs, upgrades, removes and purges packages. Set `SOURCE_DATE_EPOCH` for deterministic archive timestamps. Binaries link version/actual source SHA/build time; dirty checkouts are labeled. A source build reports its VCS commit when present and leaves its build time unknown. Official candidates link the actual UTC build time.
 
 ## 9. Building from source — Windows
 
@@ -137,7 +141,7 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python scripts/build-release.py --version 0.4.1-dev
+python scripts/build-release.py --version 0.4.2-rc.1
 & .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 

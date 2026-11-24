@@ -144,7 +144,7 @@ func (s *Store) QueryEvents(ctx context.Context, f events.Filter) ([]events.Entr
 		if err = json.Unmarshal([]byte(data), &e.Context); err != nil {
 			return nil, 0, err
 		}
-		items = append(items, e)
+		items = append(items, events.Sanitize(e))
 	}
 	return items, total, rows.Err()
 }

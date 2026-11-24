@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import signal
 import socket
+import statistics
 import subprocess
 import tempfile
 import threading
@@ -56,30 +57,35 @@ try:
       source=threading.Thread(target=generate,daemon=True);source.start()
       try:
         wait(lambda:api('/health')['storage_ready']);token=api('/api/v1/csrf')['token']
+        time.sleep(3.2)
+        report['idle_sample']=api('/api/v1/metrics')['sample']
         for count in counts:
           ready=queue.Queue();start=threading.Event();stop=threading.Event()
           def reader():
             delivered=0;errors=0
+            requested=time.monotonic()
             with urllib.request.urlopen(f'http://127.0.0.1:{primary}/live/load.ts',timeout=10) as response:
               if response.headers.get_content_type()!='video/mp2t':raise AssertionError('invalid playback MIME')
+              connection_seconds=time.monotonic()-requested
               ready.put(True);start.wait(12)
               while not stop.is_set():
                 data=response.read(1316)
                 if not data:break
                 delivered+=len(data)
                 if len(data)%188 or any(data[i]!=0x47 for i in range(0,len(data),188)):errors+=1
-            return delivered,errors
+            return delivered,errors,connection_seconds
           with concurrent.futures.ThreadPoolExecutor(max_workers=count) as pool:
             futures=[pool.submit(reader) for _ in range(count)]
             for _ in range(count):ready.get(timeout=12)
             wait(lambda:api('/api/v1/streams')['streams'][0]['clients']==count)
-            before=api('/api/v1/streams')['streams'][0]['counters']['output_bytes'];started=time.monotonic();start.set();samples=[]
+            before=api('/api/v1/streams')['streams'][0]['counters'];started=time.monotonic();start.set();samples=[]
             while time.monotonic()-started<args.duration:samples.append(api('/api/v1/metrics')['sample']);time.sleep(.5)
             stop.set();delivered=[f.result(timeout=12) for f in futures];elapsed=time.monotonic()-started;current=api('/api/v1/streams')['streams'][0];metrics=api('/api/v1/metrics')
           wait(lambda:len(api('/api/v1/clients')['clients'])==0)
-          if any(error for _,error in delivered):raise AssertionError('TS packet integrity failed')
+          if any(error for _,error,_ in delivered):raise AssertionError('TS packet integrity failed')
           if metrics['sample']['receivers']!=1:raise AssertionError('fan-out did not use one receiver')
-          report['viewer_results'].append({'viewers':count,'duration_seconds':elapsed,'http_payload_bytes_read':sum(n for n,_ in delivered),'output_bits_per_second':(current['counters']['output_bytes']-before)*8/elapsed,'cpu_percent_latest':samples[-1]['cpu_percent'],'rss_bytes_max_observed':max((s['rss_bytes'] for s in samples if s['rss_bytes'] is not None),default=None),'go_heap_bytes_max_observed':max(s['heap_bytes'] for s in samples),'goroutines_max_observed':max(s['goroutines'] for s in samples),'active_receivers':metrics['sample']['receivers'],'packet_integrity_errors':0,'all_clients_disconnected':True})
+          latencies=[seconds for _,_,seconds in delivered]
+          report['viewer_results'].append({'viewers':count,'duration_seconds':elapsed,'http_payload_bytes_read':sum(n for n,_,_ in delivered),'input_bits_per_second':(current['counters']['input_bytes']-before['input_bytes'])*8/elapsed,'output_bits_per_second':(current['counters']['output_bytes']-before['output_bytes'])*8/elapsed,'connection_seconds_median':statistics.median(latencies),'connection_seconds_max':max(latencies),'slow_client_disconnects':current['counters']['slow_client_disconnects']-before['slow_client_disconnects'],'cpu_percent_latest':samples[-1]['cpu_percent'],'rss_bytes_max_observed':max((s['rss_bytes'] for s in samples if s['rss_bytes'] is not None),default=None),'go_heap_bytes_max_observed':max(s['heap_bytes'] for s in samples),'goroutines_max_observed':max(s['goroutines'] for s in samples),'active_receivers':metrics['sample']['receivers'],'packet_integrity_errors':0,'all_clients_disconnected':True})
         wait(lambda:api('/api/v1/streams')['streams'][0]['state']=='stopped')
         for _ in range(10):
           api('/api/v1/streams/load/start','POST',token=token);api('/api/v1/streams/load/stop','POST',token=token)

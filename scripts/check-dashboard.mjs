@@ -50,13 +50,16 @@ try {
     data.clients = [{id:1,channel_id:"studio-feed",remote_ip:"192.0.2.24",connected_at:data.dashboard.sample.time,queued_bytes:0,closing:false,duration_seconds:83,bytes_delivered:12400000,output_bitrate:1490000}];
     data.settings.active.dashboard.theme = "light";
     data.settings.settings.dashboard.theme = "light";
-    data.dashboard.version = "0.4.1-dev";
+    data.dashboard.version = "0.4.2-rc.1";
+    data.system.version = "0.4.2-rc.1";
+    data.system.environment = "Production";
+    data.system.release_maturity = "Release candidate";
     data.dashboard.activity = [{id:1,time:data.dashboard.sample.time,level:"info",component:"receiver",stream_id:"studio-feed",message:"Receiver started (test fixture)",context:{}}];
     data.dashboard.history = Array.from({length:31},(_,i)=>({...data.dashboard.sample,time:new Date(Date.parse(data.dashboard.sample.time)+i*3000).toISOString(),input_bitrate:1470000+Math.sin(i/4)*120000,output_bitrate:2920000+Math.sin(i/3)*240000}));
     data.system.http_listeners.push({kind:"playback",address:"127.0.0.1:7781",state:"listening"});
     const routes = {
       "/health":{storage_ready:true},
-      "/api/v1/status":{...statusFixture, version:"0.4.1-dev",phase:4},
+      "/api/v1/status":{...statusFixture, version:"0.4.2-rc.1",environment:"Production",phase:4},
       "/api/v1/dashboard":data.dashboard,
       "/api/v1/streams":{streams:data.streams},
       "/api/v1/streams/studio-feed/metrics":{stream:data.streams[0],history:data.dashboard.history},
@@ -149,7 +152,7 @@ try {
       await inspector.click();
     }
     await mkdir(output,{recursive:true});
-    const widths=[320,375,390,430,768,1024,1280,1360,1440,1920];
+    const widths=[320,375,390,430,768,1024,1280,1360,1440,1920,2560];
     const noOverflow=async(label)=>{
       const result=await page.evaluate(()=>{
         if(document.documentElement.scrollWidth<=window.innerWidth) {
@@ -200,6 +203,9 @@ try {
     await page.setViewportSize({width:390,height:840});
     await page.getByRole("button",{name:"Open navigation"}).click();
     await page.getByRole("dialog",{name:"Navigation"}).waitFor();
+    const aboutLink=page.getByRole("dialog",{name:"Navigation"}).getByRole("link",{name:"afraaz.xyz"});
+    assert.equal(await aboutLink.getAttribute("href"),"https://afraaz.xyz");
+    assert.match(await aboutLink.getAttribute("rel"),/\bnoopener\b/);
     await noOverflow("mobile navigation");
     await page.keyboard.press("Escape");
     assert(await page.getByRole("button",{name:"Open navigation"}).evaluate(el=>document.activeElement===el));

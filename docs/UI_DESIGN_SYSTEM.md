@@ -1,5 +1,7 @@
 # Operations dashboard design system
 
+Production branding identifies the deployment environment independently of the service health badge. Release maturity and native acceptance are visible in System Information. The sidebar and mobile drawer contain Afraaz’s attribution and a link to the developer website. Fonts, icons, scripts, and styles ship with the application.
+
 The shell uses a 218px desktop rail and an 80px collapsed rail. Below 1024px, navigation moves to a focus-managed drawer. The topbar shows the route, service state, local instance, activity shortcut, and theme preference. The dashboard uses the existing revisioned settings API to save theme changes.
 
 The theme uses local system fonts, tabular digits, flat surfaces, thin borders, restrained blue controls, and semantic colors paired with text. Light mode uses #F8F9FC for the background and #101828 for primary text. Dark mode uses charcoal backgrounds and slightly lighter cards. Components share the existing CSS tokens and outline icons. Styles and icons ship with the app and work under its existing CSP.

@@ -13,6 +13,45 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 )
 
+func TestConcurrentSettingsWritesKeepOneRevision(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	current := operations.FromConfig(config.Default())
+	if err := store.InitServerSettings(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, name := range []string{"Fixture One", "Fixture Two"} {
+		go func() {
+			next := current
+			next.Dashboard.Name = name
+			<-start
+			_, err := store.WriteServerSettings(ctx, 0, next)
+			results <- err
+		}()
+	}
+	close(start)
+	writes := 0
+	for range 2 {
+		switch err := <-results; {
+		case err == nil:
+			writes++
+		case errors.Is(err, operations.ErrRevision):
+		default:
+			t.Fatal(err)
+		}
+	}
+	record, err := store.ReadServerSettings(ctx)
+	if err != nil || writes != 1 || record.Revision != 1 {
+		t.Fatalf("writes %d, record revision %d, error %v", writes, record.Revision, err)
+	}
+}
+
 func TestSettingsRevisionsPersistenceAndRollback(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.db")

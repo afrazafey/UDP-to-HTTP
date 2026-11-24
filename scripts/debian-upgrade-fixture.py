@@ -39,22 +39,27 @@ def ready():
             time.sleep(.25)
     raise AssertionError("daemon did not become ready")
 
-def verify_playback():
+def verify_playback(channel=CHANNEL, via="127.0.0.1", multicast=False):
     stop = threading.Event()
     def send():
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.bind(("127.0.0.1", 0))
+            sock.bind((via, 0))
+            if multicast:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(via))
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 0)
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
+            address = channel["source_address"] if multicast else via
             cc = 0
             while not stop.wait(.02):
                 payload = bytearray()
                 for _ in range(7):
                     payload.extend(bytes([0x47, 1, 0, 0x10 | cc]) + bytes(184))
                     cc = (cc + 1) % 16
-                sock.sendto(payload, ("127.0.0.1", CHANNEL["source_port"]))
+                sock.sendto(payload, (address, channel["source_port"]))
     worker = threading.Thread(target=send)
     worker.start()
     try:
-        with urlopen("http://127.0.0.1:7781/live/upgrade-check.ts", timeout=10) as response:
+        with urlopen(f"http://127.0.0.1:7781/live/{channel['id']}.ts", timeout=10) as response:
             data = response.read(1316)
             assert response.headers.get_content_type() == "video/mp2t"
             assert len(data) == 1316 and all(data[i] == 0x47 for i in range(0, len(data), 188))
@@ -75,6 +80,25 @@ if sys.argv[1] == "seed":
     # Policy becomes active after restart. Use the check phase to create the channel.
     with CONFIG.open("a", encoding="utf-8") as file:
         file.write("\n# Debian conffile preservation fixture\n")
+elif sys.argv[1] == "multicast":
+    links = json.loads(subprocess.check_output(["ip", "-j", "-4", "address", "show", "up"], text=True))
+    name, address = next(
+        (link["ifname"], item["local"])
+        for link in links if "MULTICAST" in link.get("flags", [])
+        for item in link["addr_info"] if item["scope"] == "global"
+    )
+    channel = dict(CHANNEL, id="unit-multicast", name="Systemd multicast fixture",
+                   source_type="multicast", source_address="239.255.42.1", source_port=15232, interface=name)
+    token = api("/api/v1/csrf")["token"]
+    view = api("/api/v1/settings")
+    desired = view["settings"]
+    desired["streaming"]["allowed_multicast_groups"] = [channel["source_address"]]
+    api("/api/v1/settings", "PUT", {"revision": view["revision"], "settings": desired, "confirm": True}, token)
+    subprocess.run(["systemctl", "restart", "udphttp-proxy"], check=True)
+    ready()
+    api("/api/v1/streams", "POST", channel, api("/api/v1/csrf")["token"])
+    verify_playback(channel, address, multicast=True)
+    print("Multicast playback passed inside the hardened systemd unit")
 elif sys.argv[1] == "migration-failure":
     candidate, directory = sys.argv[2:]
     backup = Path(directory) / "migration-check.db"
@@ -101,7 +125,7 @@ else:
     assert view["active"]["network"]["http_port"] == 7781
     assert view["active"]["streaming"]["allowed_client_networks"] == ["127.0.0.0/8"]
     streams = api("/api/v1/streams")["streams"]
-    if schema == 3 and not streams:
+    if (schema == 3 or sys.argv[1] == "create") and not streams:
         api("/api/v1/streams", "POST", CHANNEL, api("/api/v1/csrf")["token"])
         streams = api("/api/v1/streams")["streams"]
     assert len(streams) == 1

@@ -1,8 +1,8 @@
 # Production deployment and release gates
 
-For the current Phase 4.1 candidate, track the native AMD64, ARM64, and Windows results in the Phase 4.1 report. Linux CI now uses native Debian staging and exercises the package lifecycle on both architectures. [Phase 4.1 report](PHASE4_1_REPORT.md) · [CI gates](CI_CD_VALIDATION.md)
+For the current Phase 4.2 candidate, track the native AMD64, ARM64, and Windows results in the Phase 4.2 report. Linux CI now uses native Debian staging and exercises the package lifecycle on both architectures. [Phase 4.2 report](PHASE4_2_REPORT.md) · [CI gates](CI_CD_VALIDATION.md)
 
-Phase 4 is a **validation candidate** until [PHASE4_REPORT.md](PHASE4_REPORT.md) gates pass. Keep the working Phase 3 binary/database backup available. The reported TRACE URBAN success predates these changes and is a regression reference, not a Phase 4 certification. Do not replace a live Ubuntu VM automatically.
+Retain the last working binary and a verified database backup. The existing TRACE URBAN deployment is the playback regression reference for this candidate. Apply changes during an approved maintenance window.
 
 ## Service operation
 
@@ -32,8 +32,11 @@ No new Nginx playback server block is supplied as a validated configuration: Ngi
 
 ## Build/release process
 
-`scripts/build-release.py` builds Linux AMD64/ARM64, Windows AMD64, gzip/ZIP bundles and standard Debian AMD64/ARM64 packages. The portable Debian builder emits standard ar/control/data members; native dpkg inspection/install/upgrade/removal is a separate Linux gate. `SOURCE_DATE_EPOCH` makes timestamps deterministic; version/commit/date are linked into binaries. Dirty checkouts are marked `+dirty`. Source builds without linked metadata explicitly say unlinked-source. No generated binaries are committed.
+`scripts/build-release.py` builds Linux AMD64/ARM64, Windows AMD64, gzip/ZIP bundles and standard Debian AMD64/ARM64 packages. The portable Debian builder emits standard ar/control/data members; native dpkg inspection/install/upgrade/removal is a separate Linux gate. `SOURCE_DATE_EPOCH` makes timestamps deterministic; version/commit/date are linked into binaries. Dirty checkouts are marked `+dirty`. Source builds without a linked UTC timestamp report the build time as unknown. No generated binaries are committed.
 
 GitHub Actions CI invokes reusable Linux/Windows validation, including frontend tests/build, Go tests/race/coverage/vulnerability check, smoke, resource load, native Windows SCM and Debian lifecycle checks. Validation artifacts retain for 14 days. Release workflow is manual, builds artifacts with 30-day retention, and creates **only a draft prerelease** when the caller explicitly approves that action. Configure the `release-approval` GitHub Environment with required reviewers before using that path; the environment name alone is not an approval policy. Stable promotion is not automated. Linux ARM64 cross-builds are not native ARM64 runtime validation.
 
 Before any stable release: all tests must pass on native supported targets, Windows SCM/network acceptance must pass, Debian packages must survive upgrade/remove tests, the working dual-NIC multicast deployment must pass regression checks, a longer recovery/slow-client soak is required, and licensing/distribution policy must be resolved. No workflow was dispatched or release published by this local implementation.
+## Deployment environment
+
+The production label describes the configured environment. Set `UDPHTTP_ENVIRONMENT=staging` or `development` for an isolated service where appropriate. An approved release still requires native playback, package lifecycle, and security evidence. [Release checklist](RELEASE_CHECKLIST.md)

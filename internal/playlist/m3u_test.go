@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func TestExportRejectsUnsafeStoredLogo(t *testing.T) {
+	for _, logo := range []string{"file:///fixture", "data:image/svg+xml,fixture", "https://fixture:password@example.test/logo"} {
+		channel := stream.Channel{ID: "fixture", Name: "Fixture", Enabled: true, LogoURL: logo}
+		if _, err := Generate([]stream.Channel{channel}, "example.test", 7781, 7782, "", "", ""); err == nil {
+			t.Fatal("export accepted an unsafe stored logo")
+		}
+	}
+}
+
 func TestM3UParseSupportedSources(t *testing.T) {
 	input := "\ufeff#EXTM3U\n#EXTINF:-1 tvg-id=\"67\" tvg-name=\"TRACE\" tvg-logo=\"http://logos.example/urban.png\" group-title=\"MUSIC\",TRACE URBAN\nhttp://10.14.0.5:7781/udp/239.1.1.61:1234\n#EXTINF:-1,UDP channel\nudp://@239.1.1.62:1234\n#EXTINF:-1,Unicast\nudp://10.14.0.8:1235\n"
 	rows, err := Parse(input, "ens18")

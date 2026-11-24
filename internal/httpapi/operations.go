@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -80,7 +79,7 @@ func (s *Service) systemInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		cancel()
 	}
-	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "database_schema": schema, "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + direct/trusted-proxy Host + Origin/Referer + fetch metadata + CSRF on writes; local users are trusted", "remote_authentication": authentication, "trusted_proxies": proxies, "reverse_proxy": s.options.Config.Management.ReverseProxy, "linux_acceptance": "pending"})
+	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "database_schema": schema, "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + direct/trusted-proxy Host + Origin/Referer + fetch metadata + CSRF on writes; local users are trusted", "remote_authentication": authentication, "trusted_proxies": proxies, "reverse_proxy": s.options.Config.Management.ReverseProxy, "linux_acceptance": "pending", "application": buildinfo.Name, "developer": buildinfo.Developer, "website": buildinfo.Website, "environment": buildinfo.Environment(s.options.Environment), "release_maturity": buildinfo.Maturity()})
 }
 
 type settingsRequest struct {
@@ -89,19 +88,6 @@ type settingsRequest struct {
 	Confirm  bool                `json:"confirm"`
 }
 
-func decodeStrict(w http.ResponseWriter, r *http.Request, value any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
-		return err
-	}
-	var rest any
-	if err := decoder.Decode(&rest); err != io.EOF {
-		return errors.New("body must contain one JSON object")
-	}
-	return nil
-}
 func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 	m := s.options.Settings
 	if m == nil {
@@ -122,7 +108,7 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body settingsRequest
-	if err := decodeStrict(w, r, &body); err != nil {
+	if err := decodeStrict(r, &body); err != nil {
 		streamError(w, err)
 		return
 	}

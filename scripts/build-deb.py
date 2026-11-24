@@ -33,19 +33,25 @@ def tar_bytes(files,epoch,include_directories=False):
                 entry=tarfile.TarInfo('./'+name);entry.size=len(data);entry.mode=mode;entry.uid=entry.gid=0;entry.uname=entry.gname='root';entry.mtime=epoch
                 archive.addfile(entry,io.BytesIO(data))
     return result.getvalue()
-def build(arch,version,binary):
+def build(arch,version,binary,output_directory=None):
     if arch not in ('amd64','arm64') or not re.fullmatch(r'[0-9][0-9A-Za-z.+:~_-]*',version):raise ValueError('invalid architecture or version')
     epoch=int(os.environ.get('SOURCE_DATE_EPOCH','0'))
     data={'usr/bin/udphttp-proxy':(Path(binary).read_bytes(),0o755),'etc/udphttp-proxy/config.yaml':((root/'deploy/config.yaml').read_bytes(),0o644),'usr/lib/systemd/system/udphttp-proxy.service':((root/'deploy/udphttp-proxy.service').read_bytes(),0o644)}
-    for path in [*[root/name for name in ('README.md','CHANGELOG.md','ARCHITECTURE.md','ROADMAP.md','LINUX_TESTING.md','PHASE1_REPORT.md','PHASE2_REPORT.md','PHASE3_AUDIT.md','PHASE3_REPORT.md')],*sorted((root/'docs').glob('*.md')),*sorted((root/'docs/screenshots').glob('*.png')),*sorted((root/'deploy').glob('*.md')),root/'deploy/nginx-management.conf']:
-        if path.exists():
+    documentation = ('README.md', 'CHANGELOG.md', 'SECURITY.md', 'docs/PHASE4_REPORT.md',
+                     'docs/PHASE4_2_REPORT.md', 'docs/SECURITY_HARDENING.md', 'docs/INSTALL_LINUX.md',
+                     'docs/UPGRADE.md', 'docs/PRODUCTION_DEPLOYMENT.md', 'deploy/NGINX.md',
+                     'deploy/nginx-management.conf')
+    for name in documentation:
+        path=root/name
+        if path.is_file() and path.resolve()==path:
             relative=path.relative_to(root).as_posix();data['usr/share/doc/udphttp-proxy/'+relative]=(path.read_bytes(),0o644)
     for name in ('backup.sh','restore.sh'):
         data['usr/share/doc/udphttp-proxy/scripts/'+name]=((root/'scripts'/name).read_bytes(),0o755)
-    control={'control':(f'Package: udphttp-proxy\nVersion: {version}\nArchitecture: {arch}\nSection: net\nPriority: optional\nMaintainer: UDPHTTP Proxy contributors <maintainers@example.invalid>\nDepends: adduser, init-system-helpers\nDescription: Shared UDP MPEG-TS to HTTP streaming proxy\n Phase 4 validation candidate; inspect docs/PHASE4_REPORT.md before rollout.\n'.encode(),0o644),'conffiles':(b'/etc/udphttp-proxy/config.yaml\n',0o644)}
+    control={'control':(f'Package: udphttp-proxy\nVersion: {version}\nArchitecture: {arch}\nSection: net\nPriority: optional\nMaintainer: Afraaz\nHomepage: https://afraaz.xyz\nDepends: adduser, init-system-helpers\nDescription: Shared UDP MPEG-TS to HTTP streaming proxy\n UDPHTTP Proxy provides local management and bounded IPTV fan-out.\n'.encode(),0o644),'conffiles':(b'/etc/udphttp-proxy/config.yaml\n',0o644)}
     control['md5sums']=(''.join(f'{hashlib.md5(content).hexdigest()}  {name}\n' for name,(content,_) in sorted(data.items())).encode(),0o644)
     for name in ('postinst','prerm','postrm'):control[name]=((root/'packaging/debian'/name).read_bytes().replace(b'\r\n',b'\n'),0o755)
-    output=root/'build'/f'udphttp-proxy_{version}_{arch}.deb';output.parent.mkdir(exist_ok=True)
+    output=(Path(output_directory) if output_directory else root/'build')/f'udphttp-proxy_{version}_{arch}.deb'
+    output.parent.mkdir(parents=True,exist_ok=True)
     if dpkg := shutil.which('dpkg-deb'):
         with tempfile.TemporaryDirectory(prefix='udphttp-deb-') as directory:
             stage = Path(directory) / 'package'

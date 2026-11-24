@@ -59,7 +59,7 @@ func (s *Service) channelImport(w http.ResponseWriter, r *http.Request) {
 			Text      string `json:"text"`
 			Interface string `json:"interface"`
 		}
-		if err := decodeStrict(w, r, &body); err != nil {
+		if err := decodeStrict(r, &body); err != nil {
 			streamError(w, err)
 			return
 		}
@@ -133,7 +133,7 @@ func (s *Service) channelImport(w http.ResponseWriter, r *http.Request) {
 		UpdateExisting bool             `json:"update_existing"`
 		Confirm        bool             `json:"confirm"`
 	}
-	if err := decodeStrict(w, r, &body); err != nil {
+	if err := decodeStrict(r, &body); err != nil {
 		streamError(w, err)
 		return
 	}
@@ -162,7 +162,7 @@ func (s *Service) bulkChannels(w http.ResponseWriter, r *http.Request) {
 		Action  string   `json:"action"`
 		Confirm bool     `json:"confirm"`
 	}
-	if err := decodeStrict(w, r, &body); err != nil {
+	if err := decodeStrict(r, &body); err != nil {
 		streamError(w, err)
 		return
 	}
@@ -192,7 +192,7 @@ func (s *Service) diagnostics(w http.ResponseWriter, r *http.Request) {
 			Action    string `json:"action"`
 			ChannelID string `json:"channel_id"`
 		}
-		if err := decodeStrict(w, r, &body); err != nil {
+		if err := decodeStrict(r, &body); err != nil {
 			streamError(w, err)
 			return
 		}

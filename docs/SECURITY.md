@@ -20,4 +20,4 @@ SQLite data and backups contain private configuration/history. Linux data direct
 
 Structured events redact recognized secret keys, bearer patterns, assignment patterns and URL credentials/queries. Packet bodies, Basic credentials, full imported payloads and full configuration requests are not logged. Bounded history is not an immutable audit ledger; dropped events are visible. Diagnostic log exports inherit management authorization.
 
-Report suspected vulnerabilities privately to the repository owner through an established private contact. This repository currently has no declared security-contact address; do not invent one. Do not post credentials or packet captures in public issues.
+Use the [private vulnerability reporting process](../SECURITY.md) for suspected issues. See the [threat model](THREAT_MODEL.md) and [audit finding register](SECURITY_AUDIT.md) for Phase 4.2.

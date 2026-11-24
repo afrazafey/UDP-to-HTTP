@@ -265,4 +265,14 @@ func TestManagementProxyCSRFAndSettingsMutation(t *testing.T) {
 	if w.Code != 415 {
 		t.Fatal("proxied mutation bypassed JSON requirement", w.Code)
 	}
+	r = proxiedRequest("POST", "/api/v1/settings/validate")
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.Header.Set("X-CSRF-Token", csrf.Token)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Add("Content-Type", "text/plain")
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusUnsupportedMediaType {
+		t.Fatal("ambiguous media type was accepted", w.Code)
+	}
 }

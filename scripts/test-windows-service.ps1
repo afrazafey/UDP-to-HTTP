@@ -2,28 +2,34 @@ param([Parameter(Mandatory)][string]$Binary)
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'This installs a native service and is restricted to a disposable GitHub Actions runner.' }
 if (Get-Service UDPHTTPProxy -ErrorAction SilentlyContinue) { throw 'An existing service must never be replaced by this integration test.' }
-$binaryPath = (Resolve-Path -LiteralPath $Binary).ProviderPath
-$testRoot = Join-Path $env:ProgramData ('UDPHTTPProxy-ci-' + [guid]::NewGuid().ToString('N'))
+$installer = Join-Path $PSScriptRoot 'install-windows.ps1'
+$sourceBinary = (Resolve-Path -LiteralPath $Binary).ProviderPath
+$testRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'UDPHTTPProxy'
+$binaryPath = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'UDPHTTPProxy\udphttp-proxy.exe'
 $dataRoot = Join-Path $testRoot 'data'
 $logRoot = Join-Path $testRoot 'logs'
-New-Item -ItemType Directory -Force -Path $testRoot,$dataRoot,$logRoot | Out-Null
-& icacls.exe $testRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Cannot apply test directory ACL' }
-foreach ($directory in @($dataRoot,$logRoot)) { & icacls.exe $directory /grant:r '*S-1-5-19:(OI)(CI)M' | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Cannot allow LocalService test data access' } }
-# GitHub's checkout can be under a profile or a restricted runner directory.
-Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $testRoot 'udphttp-proxy.exe')
-$binaryPath = Join-Path $testRoot 'udphttp-proxy.exe'
 $ports = [Collections.Generic.HashSet[int]]::new()
 while ($ports.Count -lt 3) { $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $listener.Start(); [void]$ports.Add($listener.LocalEndpoint.Port); $listener.Stop() }
 $portList = @($ports)
 $config = Join-Path $testRoot 'config.yaml'
-@{management=@{host='127.0.0.1';port=$portList[0];shutdown_timeout='5s'};network=@{http_interface='127.0.0.1';http_port=$portList[1];secondary_http_port=$portList[2]};storage=@{path=(Join-Path $dataRoot 'state.db')}} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $config -Encoding utf8
 $installed = $false
 $report = @{status='failed';native_scm=$true;test_root=$testRoot}
 try {
-    & $binaryPath service install --config $config --log-dir $logRoot
-    if ($LASTEXITCODE -ne 0) { throw 'SCM installation failed' }
+    & $installer -Binary $sourceBinary
     $installed = $true
+    $registered = Get-CimInstance Win32_Service -Filter "Name='UDPHTTPProxy'"
+    if ($registered.StartName -notmatch '^(NT AUTHORITY\\)?LocalService$' -or
+        -not $registered.PathName.StartsWith('"' + $binaryPath + '"')) { throw 'Unexpected service identity or executable quoting' }
+    if ((Get-Item -LiteralPath $binaryPath).VersionInfo.CompanyName -ne 'Afraaz') { throw 'PE metadata missing' }
+    foreach ($directory in @($testRoot,$dataRoot,$logRoot,(Split-Path -Parent $binaryPath))) {
+        $acl = Get-Acl -LiteralPath $directory
+        if (-not $acl.AreAccessRulesProtected) { throw "Unprotected ACL: $directory" }
+        $sids = $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]).IdentityReference.Value
+        if (@($sids | Where-Object { $_ -notin @('S-1-5-18','S-1-5-32-544','S-1-5-19') }).Count) {
+            throw "Unexpected ACL principal: $directory"
+        }
+    }
+    @{management=@{host='127.0.0.1';port=$portList[0];shutdown_timeout='5s'};network=@{http_interface='127.0.0.1';http_port=$portList[1];secondary_http_port=$portList[2]};storage=@{path=(Join-Path $dataRoot 'state.db')}} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $config -Encoding utf8
     & $binaryPath service start
     if ($LASTEXITCODE -ne 0) { throw 'SCM start failed' }
     $ready = $false

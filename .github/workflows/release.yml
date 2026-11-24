@@ -1,13 +1,13 @@
-name: Phase 4 release candidates
+name: UDPHTTP Proxy release candidate
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Candidate version (stable promotion remains manual)
+        description: Candidate version (for example 0.4.2-rc.1)
         required: true
-        default: 0.4.1-rc.1
+        default: 0.4.2-rc.1
       create_draft:
-        description: Explicit approval to create a draft prerelease after validation
+        description: Approve creating a draft prerelease after successful validation
         type: boolean
         default: false
 permissions:
@@ -15,56 +15,31 @@ permissions:
 jobs:
   validate:
     uses: ./.github/workflows/release-validation.yml
-  package:
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.x'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: npm ci && npm run build
-        working-directory: frontend
-      - name: Build candidates and inspect Debian packages
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          python3 scripts/build-release.py --version "$VERSION"
-          python3 scripts/verify-artifacts.py
-          for package in build/*.deb; do dpkg-deb --info "$package"; done
-          cd build
-          sha256sum --check SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phase4-release-candidates
-          path: build/
-          retention-days: 30
+    with:
+      version: ${{ inputs.version }}
   draft:
     if: inputs.create_draft
-    needs: package
-    runs-on: ubuntu-latest
+    needs: validate
+    runs-on: ubuntu-24.04
     environment: release-approval
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: phase4-release-candidates
-          path: build
-      - name: Create an approved draft only
+          name: phase42-candidate
+          path: build/candidate
+      - name: Create approved draft using the tested package bytes
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          cd build
-          sha256sum --check SHA256SUMS
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          cd build/candidate
+          sha256sum --strict --check SHA256SUMS
           mapfile -t files < <(cut -c67- SHA256SUMS)
-          gh release create "v$VERSION" "${files[@]}" SHA256SUMS --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP $VERSION validation candidate" --notes "Review docs/PHASE4_1_REPORT.md and native validation results before stable promotion."
+          gh release create "v$VERSION" "${files[@]}" SHA256SUMS --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP Proxy $VERSION" --notes "Developed by Afraaz (https://afraaz.xyz). Review docs/PHASE4_2_REPORT.md and release gates before stable promotion."

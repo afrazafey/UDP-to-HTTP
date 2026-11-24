@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 type BackupInfo struct {
@@ -21,10 +23,44 @@ type BackupInfo struct {
 }
 
 func reserveBackup(path string) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	directory := filepath.Dir(path)
+	if err := requireBackupDirectory(directory); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return nil, err
+	}
+	if err := requireBackupDirectory(directory); err != nil {
 		return nil, err
 	}
 	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+}
+
+// Check the first existing ancestor before MkdirAll creates a new child.
+// Backup and restore directories must also be owned by trusted operators.
+func requireBackupDirectory(directory string) error {
+	directory, err := filepath.Abs(directory)
+	if err != nil {
+		return err
+	}
+	for {
+		resolved, err := filepath.EvalSymlinks(directory)
+		if err == nil {
+			if directory != resolved && !(runtime.GOOS == "windows" && strings.EqualFold(directory, resolved)) {
+				return errors.New("backup and restore paths must use directories without symbolic links")
+			}
+			return nil
+		}
+		parent := filepath.Dir(directory)
+		if !os.IsNotExist(err) || parent == directory {
+			return err
+		}
+		// A dangling symlink is not a missing directory.
+		if _, statErr := os.Lstat(directory); !os.IsNotExist(statErr) {
+			return err
+		}
+		directory = parent
+	}
 }
 
 // Backup uses SQLite VACUUM INTO for a consistent snapshot including committed
@@ -38,8 +74,12 @@ func (s *Store) Backup(ctx context.Context, path string) (BackupInfo, error) {
 	if err != nil {
 		return BackupInfo{}, err
 	}
+	reserved, statErr := f.Stat()
 	if err = f.Close(); err != nil {
 		return BackupInfo{}, err
+	}
+	if statErr != nil {
+		return BackupInfo{}, statErr
 	}
 	ok := false
 	defer func() {
@@ -49,6 +89,13 @@ func (s *Store) Backup(ctx context.Context, path string) (BackupInfo, error) {
 	}()
 	if _, err = s.db.ExecContext(ctx, "VACUUM INTO ?", abs); err != nil {
 		return BackupInfo{}, err
+	}
+	current, err := os.Lstat(abs)
+	if err != nil {
+		return BackupInfo{}, err
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(reserved, current) {
+		return BackupInfo{}, errors.New("backup destination changed during snapshot")
 	}
 	f, err = os.OpenFile(abs, os.O_RDWR, 0600)
 	if err != nil {
@@ -73,6 +120,9 @@ func VerifyBackup(ctx context.Context, path string) (BackupInfo, error) {
 	var info BackupInfo
 	abs, err := filepath.Abs(path)
 	if err != nil {
+		return info, err
+	}
+	if err = requireBackupDirectory(filepath.Dir(abs)); err != nil {
 		return info, err
 	}
 	stat, err := os.Lstat(abs)

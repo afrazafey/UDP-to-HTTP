@@ -19,7 +19,7 @@ install_package() {
     getent passwd udphttp-proxy
     test -x /usr/bin/udphttp-proxy
     [[ $(stat -c '%U:%G %a' /var/lib/udphttp-proxy) == 'udphttp-proxy:udphttp-proxy 700' ]]
-    [[ $(stat -c '%U:%G %a' /etc/udphttp-proxy/config.yaml) == 'root:root 644' ]]
+    [[ $(stat -c '%U:%G %a' /etc/udphttp-proxy/config.yaml) =~ ^root:(root\ 644|udphttp-proxy\ 640)$ ]]
     sudo systemctl daemon-reload
     sudo systemctl enable --now udphttp-proxy
     systemctl is-enabled udphttp-proxy
@@ -66,5 +66,31 @@ sudo dpkg --remove udphttp-proxy
 test -f /etc/udphttp-proxy/config.yaml
 sudo dpkg --purge udphttp-proxy
 test ! -e /etc/udphttp-proxy/config.yaml
+sudo test -f /var/lib/udphttp-proxy/udphttp-proxy.db
+
+# Upgrade directly from a representative Phase 4.1 source revision as well.
+sudo mv /var/lib/udphttp-proxy "$work/schema4-state"
+previous=dbda0c0b8ab6272522847b436c19ad78a2091735
+mkdir "$work/previous"
+git archive "$previous" | tar -x -C "$work/previous"
+(
+    cd "$work/previous"
+    npm --prefix frontend ci
+    npm --prefix frontend run build
+    python scripts/build-release.py --version 0.4.1-dev --targets "linux/$arch"
+)
+install_package "$work/previous/build/udphttp-proxy_0.4.1~dev_$arch.deb"
+systemd-analyze --no-pager security udphttp-proxy.service
+sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py seed
+sudo systemctl restart udphttp-proxy
+sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py create 4
+sudo cp /etc/udphttp-proxy/config.yaml "$work/phase41.yaml"
+install_package "$package"
+[[ $(stat -c '%U:%G %a' /etc/udphttp-proxy/config.yaml) == 'root:udphttp-proxy 640' ]]
+sudo cmp "$work/phase41.yaml" /etc/udphttp-proxy/config.yaml
+sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py check 4
+systemd-analyze --no-pager security udphttp-proxy.service
+sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py multicast
+sudo dpkg --purge udphttp-proxy
 sudo test -f /var/lib/udphttp-proxy/udphttp-proxy.db
 echo 'Debian lifecycle passed'

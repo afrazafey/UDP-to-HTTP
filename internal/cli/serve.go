@@ -170,8 +170,12 @@ func serve(ctx context.Context, args []string, errOut io.Writer, getenv func(str
 	if err = store.Put(ctx, "last_startup_configuration", string(snapshot)); err != nil {
 		return err
 	}
-	logger.Info("management listening", "component", "http", "address", management.Addr().String(), "phase", 4, "version", buildinfo.Version, "saved_settings_ignored", ignore)
-	service := httpapi.New(httpapi.Options{Config: cfg, Store: store, Logger: logger, Assets: web.Assets(), Streams: engine, Settings: settings, Monitor: monitor, Events: store, DroppedLogs: func() uint64 { return sink.Dropped.Load() }, ConfigPath: configurationPath(args, getenv), Listeners: statuses})
+	environment := ""
+	if getenv != nil {
+		environment = getenv("UDPHTTP_ENVIRONMENT")
+	}
+	logger.Info("management listening", "component", "http", "address", management.Addr().String(), "version", buildinfo.Version, "environment", buildinfo.Environment(environment), "saved_settings_ignored", ignore)
+	service := httpapi.New(httpapi.Options{Config: cfg, Store: store, Logger: logger, Assets: web.Assets(), Streams: engine, Settings: settings, Monitor: monitor, Events: store, DroppedLogs: func() uint64 { return sink.Dropped.Load() }, ConfigPath: configurationPath(args, getenv), Environment: environment, Listeners: statuses})
 	results := make(chan error, len(listeners))
 	for i, l := range listeners {
 		go func(index int, l net.Listener) {

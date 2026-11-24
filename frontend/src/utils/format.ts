@@ -2,9 +2,13 @@ import type { NetworkInterface, Settings, Stream } from "../types/operations";
 export const rate = (value: number | null | undefined) =>
   value == null
     ? "Unavailable"
+    : value >= 1e9
+      ? `${(value / 1e9).toFixed(2)} Gbps`
     : value >= 1e6
       ? `${(value / 1e6).toFixed(2)} Mbps`
-      : `${(value / 1000).toFixed(1)} Kbps`;
+      : value >= 1000
+        ? `${(value / 1000).toFixed(1)} Kbps`
+        : `${Math.round(value)} bps`;
 export const bytes = (value: number | null | undefined) =>
   value == null
     ? "Unavailable"

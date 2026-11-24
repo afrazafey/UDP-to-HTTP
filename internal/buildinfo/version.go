@@ -2,12 +2,19 @@ package buildinfo
 
 import (
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
 var StartedAt = time.Now().UTC()
 
-var Version = "0.4.1-dev"
+const (
+	Name      = "UDPHTTP Proxy"
+	Developer = "Afraaz"
+	Website   = "https://afraaz.xyz"
+)
+
+var Version = "0.4.2-rc.1"
 var Commit = ""
 var Date = ""
 
@@ -27,9 +34,28 @@ func init() {
 		}
 	}
 	if Commit == "" {
-		Commit = "unlinked-source"
+		Commit = "unknown"
 	}
-	if Date == "" {
-		Date = "unlinked-source; use release build script"
+}
+
+func Environment(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "development":
+		return "Development"
+	case "staging":
+		return "Staging"
+	default:
+		return "Production"
+	}
+}
+
+func Maturity() string {
+	switch {
+	case strings.Contains(Version, "-rc"):
+		return "Release candidate"
+	case strings.Contains(Version, "-"):
+		return "Development"
+	default:
+		return "Versioned build"
 	}
 }

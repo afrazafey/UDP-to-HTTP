@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+func TestBackupDestinationRejectsLinkedParent(t *testing.T) {
+	directory := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(directory, "linked")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("cannot create directory symlink: %v", err)
+	}
+	target := filepath.Join(link, "nested", "snapshot.db")
+	f, err := reserveBackup(target)
+	if err == nil {
+		f.Close()
+		t.Fatal("backup wrote through a linked parent")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "nested")); !os.IsNotExist(err) {
+		t.Fatal("backup created a directory outside its nominated path")
+	}
+}
+
 func TestV3MetadataMigrationPreservesRecordsAndFailureRollback(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "upgrade.db")

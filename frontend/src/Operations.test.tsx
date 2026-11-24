@@ -117,6 +117,20 @@ afterEach(() => {
   window.location.hash = "";
 });
 describe("Phase 3 dashboard", () => {
+  it("keeps deployment branding separate from release maturity and treats channel markup as text", async () => {
+    const { data } = setup();
+    data.system.environment = "Production";
+    data.system.release_maturity = "Release candidate";
+    data.streams[0].channel.name = "<b>Untrusted channel name</b>";
+    renderApp();
+    expect(await screen.findByText("<b>Untrusted channel name</b>")).toBeVisible();
+    expect(document.querySelector(".op-channel-identity b")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "System Information" }));
+    expect(await screen.findByText("Release candidate")).toBeVisible();
+    const website = within(screen.getByRole("heading", { name: "About" }).closest("section")!).getByRole("link", { name: "afraaz.xyz" });
+    expect(website).toHaveAttribute("href", "https://afraaz.xyz");
+    expect(website).toHaveAttribute("rel", "noopener noreferrer");
+  });
   it("opens the real channel form from Overview and restores focus on Escape", async () => {
     setup();
     renderApp();
