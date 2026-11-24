@@ -202,7 +202,12 @@ func (s *Store) SeedChannels(ctx context.Context, channels []stream.Channel) err
 	return tx.Commit()
 }
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
-func (s *Store) Close() error                   { return s.db.Close() }
+func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+	var version int
+	err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version)
+	return version, err
+}
+func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Put(ctx context.Context, key string, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`, key, value)
 	return err

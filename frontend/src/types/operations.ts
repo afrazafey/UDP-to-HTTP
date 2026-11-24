@@ -100,6 +100,7 @@ export interface Dashboard {
   history_limit: number;
 }
 export interface SystemInfo {
+  database_schema?: number | null;
   version: string;
   commit: string;
   build_date: string;

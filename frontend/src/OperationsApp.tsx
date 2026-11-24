@@ -1,21 +1,28 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
-  Cable,
+  Bell,
+  CirclePlay,
+  Clock3,
+  Cpu,
+  Database,
+  Download,
   ChevronRight,
   FileText,
-  LayoutDashboard,
+  House,
+  ListMusic,
   Menu,
   Monitor,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   Pause,
   Play,
   Radio,
   RefreshCw,
-  Settings2,
-  ShieldCheck,
+  Settings,
   Users,
+  Plus,
 } from "lucide-react";
 import type { Status } from "./types/operations";
 import { useOperations } from "./hooks/useOperations";
@@ -38,20 +45,37 @@ import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { PlaylistsPage } from "./pages/PlaylistsPage";
+import { ChannelDialog } from "./components/streams/ChannelDialog";
+import { Badge } from "./components/ui";
+import { bytes, duration } from "./utils/format";
 const navigation = [
-  { path: "/overview", name: "Overview", icon: LayoutDashboard },
-  { path: "/streams", name: "Streams", icon: Radio },
-  { path: "/playlists", name: "Playlists & Import", icon: FileText },
-  { path: "/network", name: "Network Interfaces", icon: Cable },
-  { path: "/clients", name: "Connected Clients", icon: Users },
+  { path: "/overview", name: "Overview", icon: House },
+  { path: "/streams", name: "Channels", icon: CirclePlay },
+  { path: "/playlists", name: "Playlists", icon: ListMusic },
+  { path: "/import-export", name: "Import / Export", icon: Download },
+  { path: "/network", name: "Network", icon: Network },
   { path: "/monitoring", name: "Monitoring", icon: Activity },
   { path: "/logs", name: "Activity Logs", icon: FileText },
-  { path: "/settings", name: "Settings", icon: Settings2 },
+  { path: "/settings", name: "Settings", icon: Settings },
+  { path: "/clients", name: "Connected Clients", icon: Users },
   { path: "/system", name: "System Information", icon: Monitor },
 ];
+const pageDescriptions: Record<string, string> = {
+  "/overview": "Live operational data from your UDPHTTP Proxy service.",
+  "/streams": "Manage channel sources, receivers, and HTTP playback.",
+  "/playlists": "Preview and download the M3U playlist for enabled channels.",
+  "/import-export": "Import channel lists or export a playback playlist.",
+  "/network": "Inspect network interfaces, test playback, and stage configuration.",
+  "/monitoring": "Track throughput, receiver health, and process resources.",
+  "/logs": "Search retained events and export filtered diagnostics.",
+  "/settings": "Configure the dashboard, streaming engine, and playback policies.",
+  "/clients": "Inspect and manage active playback connections.",
+  "/system": "Inspect the running build, listeners, and storage status.",
+};
 export function OperationsApp({ status }: { status: Status }) {
   const route = useRoute();
   const [paused, setPaused] = useState(false);
+  const [addChannel, setAddChannel] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("udphttp-sidebar") === "collapsed",
@@ -64,6 +88,14 @@ export function OperationsApp({ status }: { status: Status }) {
     navigation.find((n) => path === n.path || path.startsWith(`${n.path}/`)) ??
     navigation[0];
   const theme = data?.settings.active.dashboard.theme ?? "system";
+  const serviceState = poll.error
+    ? "stale"
+    : data
+      ? status.status === "degraded" || !data.dashboard.database_ready
+        ? "degraded"
+        : "running"
+      : status.status;
+  const sample = data?.dashboard.sample;
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     const apply = () => {
@@ -116,22 +148,48 @@ export function OperationsApp({ status }: { status: Status }) {
     } else
       switch (path) {
         case "/playlists":
-          page = <PlaylistsPage data={data} refresh={poll.refresh} />;
+          page = (
+            <PlaylistsPage data={data} refresh={poll.refresh} mode="export" />
+          );
+          break;
+        case "/import-export":
+          page = (
+            <PlaylistsPage
+              key={route}
+              data={data}
+              refresh={poll.refresh}
+              mode={route.endsWith("?mode=export") ? "export" : "import"}
+            />
+          );
           break;
         case "/overview":
-          page = <OverviewPage data={data} />;
+          page = (
+            <OverviewPage
+              data={data}
+              refresh={poll.refresh}
+              serviceState={serviceState}
+            />
+          );
           break;
         case "/streams":
           page = <StreamsPage data={data} refresh={poll.refresh} />;
           break;
         case "/network":
-          page = <NetworkPage data={data} refresh={poll.refresh} />;
+          page = (
+            <NetworkPage data={data} refresh={poll.refresh} paused={paused} />
+          );
           break;
         case "/clients":
           page = <ClientsPage data={data} refresh={poll.refresh} />;
           break;
         case "/monitoring":
-          page = <MonitoringPage data={data} />;
+          page = (
+            <MonitoringPage
+              data={data}
+              paused={paused}
+              interval={poll.interval}
+            />
+          );
           break;
         case "/logs":
           page = (
@@ -142,6 +200,9 @@ export function OperationsApp({ status }: { status: Status }) {
               interval={poll.interval}
               initialStream={
                 new URLSearchParams(route.split("?")[1]).get("stream_id") ?? ""
+              }
+              initialComponent={
+                new URLSearchParams(route.split("?")[1]).get("component") ?? ""
               }
             />
           );
@@ -183,24 +244,46 @@ export function OperationsApp({ status }: { status: Status }) {
               <Radio size={24} />
             </span>
             <span>
-              <strong>
-                UDP<span>HTTP</span>
-              </strong>
-              <small>UDP STREAM PROXY</small>
+              <strong>UDPHTTP</strong>
+              <small>Stream Proxy</small>
             </span>
           </a>
-          <div className="op-nav-label">OPERATIONS</div>
           {links}
           <div className="op-sidebar-bottom">
-            <div>
-              <ShieldCheck size={18} />
-              <span>
-                Local administration<small>Loopback access only</small>
-              </span>
-            </div>
-            <span className="op-dev-version">
-              {status.version} · Development
-            </span>
+            <section className="op-service-summary" aria-label="Service status">
+              <div className="op-service-title">
+                <span className={`op-service-light op-state-${serviceState}`} aria-hidden="true" />
+                <div>
+                  <strong>Service {serviceState}</strong>
+                  <small>{status.version}</small>
+                </div>
+              </div>
+              <dl>
+                <div>
+                  <dt><Clock3 size={15} aria-hidden="true" /> Uptime</dt>
+                  <dd>
+                    {data
+                      ? duration(data.dashboard.uptime_seconds)
+                      : "Unavailable"}
+                  </dd>
+                </div>
+                <div>
+                  <dt><Cpu size={15} aria-hidden="true" /> CPU</dt>
+                  {sample?.cpu_percent != null && (
+                    <meter aria-hidden="true" min={0} max={100} value={sample.cpu_percent} />
+                  )}
+                  <dd>
+                    {sample?.cpu_percent == null
+                      ? "Unavailable"
+                      : `${sample.cpu_percent.toFixed(1)}%`}
+                  </dd>
+                </div>
+                <div>
+                  <dt><Database size={15} aria-hidden="true" /> Memory</dt>
+                  <dd>{bytes(sample?.rss_bytes)}</dd>
+                </div>
+              </dl>
+            </section>
             <Button
               onClick={() => setCollapsed(!collapsed)}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -225,40 +308,57 @@ export function OperationsApp({ status }: { status: Status }) {
               >
                 <Menu size={21} />
               </button>
-              <span>Workspace</span>
+              <a href="#/overview" className="op-breadcrumb-root">
+                Workspace
+              </a>
               <ChevronRight size={14} />
               <strong>{selected.name}</strong>
             </div>
             <div>
-              <ShieldCheck size={15} />
-              <span>Local instance</span>
-              <a
-                className="op-icon"
-                href="#/settings"
-                aria-label="Theme and application settings"
-              >
-                <Settings2 size={18} />
+              <span className="op-topbar-status"><span className="op-dot" aria-hidden="true" /><Badge state={serviceState} /></span>
+              <a href="#/system" className="op-instance"><Monitor size={16} aria-hidden="true" /> Local instance</a>
+              <a href="#/logs" className="op-icon op-topbar-logs" aria-label="Open activity logs" title="Activity logs">
+                <Bell size={17} aria-hidden="true" />
               </a>
+              <select
+                aria-label="Dashboard theme"
+                className="op-theme-control"
+                value={theme}
+                disabled={action.busy || !data}
+                onChange={(event) => {
+                  if (!data) return;
+                  const next = event.target.value;
+                  void action.run(async () => {
+                    await mutate("/api/v1/settings", "PUT", {
+                      revision: data.settings.revision,
+                      confirm: true,
+                      settings: {
+                        ...data.settings.settings,
+                        dashboard: {
+                          ...data.settings.settings.dashboard,
+                          theme: next,
+                        },
+                      },
+                    });
+                    poll.refresh();
+                  }, "Theme saved");
+                }}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
             </div>
           </header>
-          <main className="op-content" id="op-content" tabIndex={-1}>
+          <main className={`op-content ${path === "/overview" ? "op-content-overview" : "op-workspace"}`} id="op-content" tabIndex={-1}>
             <div className="op-page-heading">
               <div>
-                <span className="op-eyebrow">
-                  {data?.settings.active.dashboard.name ?? "UDPHTTP PROXY"}
-                </span>
                 <h1>
                   {path.startsWith("/streams/")
                     ? "Stream details"
                     : selected.name}
                 </h1>
-                <p>
-                  {path === "/network"
-                    ? "Inspect interfaces and safely stage network configuration."
-                    : path === "/streams"
-                      ? "Manage approved IPTV sources and shared HTTP playback."
-                      : "Live operational data from your proxy service."}
-                </p>
+                {pageDescriptions[path] && <p>{pageDescriptions[path]}</p>}
               </div>
               <div className="op-heading-actions">
                 <Button
@@ -272,8 +372,28 @@ export function OperationsApp({ status }: { status: Status }) {
                   <RefreshCw size={15} />
                   {poll.loading ? "Refreshing…" : "Refresh now"}
                 </Button>
+                {path === "/overview" && (
+                  <Button
+                    className="primary"
+                    disabled={!data}
+                    onClick={() => setAddChannel(true)}
+                  >
+                    <Plus size={16} />
+                    Add Channel
+                  </Button>
+                )}
               </div>
             </div>
+            {poll.error && (
+              <ErrorBanner>
+                {poll.error}.{" "}
+                {data
+                  ? "Showing the last successful response; measurements may be stale."
+                  : "No operations data is available. Check the daemon and retry."}
+              </ErrorBanner>
+            )}
+            {action.error && <ErrorBanner>{action.error}</ErrorBanner>}
+            {!data && poll.loading ? <Skeleton /> : page}
             <div className="op-monitor-bar">
               <span
                 className={`op-dot ${poll.error ? "error" : paused ? "paused" : ""}`}
@@ -326,16 +446,6 @@ export function OperationsApp({ status }: { status: Status }) {
                 </select>
               </label>
             </div>
-            {poll.error && (
-              <ErrorBanner>
-                {poll.error}.{" "}
-                {data
-                  ? "Showing the last successful response; measurements may be stale."
-                  : "No operations data is available. Check the daemon and retry."}
-              </ErrorBanner>
-            )}
-            {action.error && <ErrorBanner>{action.error}</ErrorBanner>}
-            {!data && poll.loading ? <Skeleton /> : page}
             {data && (
               <footer className="op-footer">
                 <span>
@@ -351,9 +461,20 @@ export function OperationsApp({ status }: { status: Status }) {
         </div>
       </div>
       {mobile && (
-        <Dialog title="Navigation" onClose={() => setMobile(false)}>
+        <Dialog
+          title="Navigation"
+          variant="drawer"
+          onClose={() => setMobile(false)}
+        >
           {links}
         </Dialog>
+      )}
+      {addChannel && data && (
+        <ChannelDialog
+          data={data}
+          onClose={() => setAddChannel(false)}
+          refresh={poll.refresh}
+        />
       )}
     </>
   );

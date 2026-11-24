@@ -1,5 +1,7 @@
 # Troubleshooting
 
+An older development package that fails with `config.yaml.dpkg-new` and a missing parent directory needs a rebuilt package with the corrected archive layout. Inspect the replacement package and follow the upgrade steps if a prior installation exists. A Go coverage failure referring to package `.out` requires quoting the complete coverage flag or using the Bash CI command. [Debian packaging](DEBIAN_PACKAGING.md) · [Coverage commands](CI_CD_VALIDATION.md)
+
 Begin with the actual service log and `/health`; do not reset SQLite or broaden allowlists to suppress an error. A successful syntax check, UDP bind, multicast membership, received datagram, valid TS packet and decoded player session prove different things.
 
 | Symptom | Check and action |

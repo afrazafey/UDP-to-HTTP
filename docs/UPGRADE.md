@@ -1,5 +1,38 @@
 # Safe upgrade, backup, restore and uninstall
 
+## Phase 4.1 upgrade on Ubuntu AMD64
+
+Run these commands on the Ubuntu host after the release candidate passes your acceptance checks. Start from the directory containing the reviewed AMD64 package and its checksum manifest. Check that `dpkg --print-architecture` returns `amd64`.
+
+```bash
+set -euo pipefail
+PACKAGE=udphttp-proxy_0.4.1~dev_amd64.deb
+grep -F "  $PACKAGE" SHA256SUMS | sha256sum --check --strict -
+dpkg-deb --info "$PACKAGE"
+dpkg-deb --contents "$PACKAGE"
+stage=$(mktemp -d)
+chmod 0755 "$stage"
+dpkg-deb -x "$PACKAGE" "$stage"
+candidate="$stage/usr/bin/udphttp-proxy"
+config=/etc/udphttp-proxy/config.yaml
+backup="/var/lib/udphttp-proxy/pre-phase41-$(date -u +%Y%m%dT%H%M%SZ).db"
+sudo install -d -m 0700 /var/backups/udphttp-proxy
+sudo cp -p "$config" "/var/backups/udphttp-proxy/config.pre-phase41.$(date -u +%Y%m%dT%H%M%SZ).yaml"
+sudo -u udphttp-proxy "$candidate" config validate --config "$config"
+sudo -u udphttp-proxy "$candidate" database backup --config "$config" --output "$backup"
+sudo -u udphttp-proxy "$candidate" database verify --input "$backup"
+sudo systemctl stop udphttp-proxy
+sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+  -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+  install "./$PACKAGE"
+sudo systemctl enable --now udphttp-proxy
+systemctl is-active udphttp-proxy
+curl --fail --retry 8 --retry-connrefused http://127.0.0.1:8080/health
+journalctl -u udphttp-proxy -n 50 --no-pager
+```
+
+The unattended choice preserves a locally edited conffile. Review any `.dpkg-dist` after the upgrade. Check saved channel and settings counts, and open the existing playback URL from an authorized client. Retain the previous package with the pre-upgrade snapshot and configuration. Phase 4.1 keeps schema 4, and a rollback to Phase 3 requires a schema 3 snapshot. The restore procedure below uses a new database path.
+
 Keep the last known-working binary, configuration and a verified matching database backup. Phase 4 schema 4 is forward-only; old Phase 3 binaries reject it. Downgrade requires the old binary **and its pre-upgrade backup**, not a database edit, reset, or schema-version decrement.
 
 ## Consistent backups
@@ -29,7 +62,7 @@ The helper scripts in `scripts/backup.*` and `restore.*` wrap these same command
 1. Verify the new artifact checksums; read the Phase 4 report and test migrations on a restored copy first.
 2. Take/verify the pre-upgrade snapshot above and retain the old config/binary.
 3. `sudo systemctl stop udphttp-proxy`; confirm stopped and no active database writers.
-4. `sudo apt install './udphttp-proxy_0.4.0~dev_amd64.deb'` (or arm64). Debian preserves modified YAML as a conffile. Review any conffile prompt; never accept replacing a production policy blindly.
+4. `sudo apt install './udphttp-proxy_0.4.1~dev_amd64.deb'` (or arm64). Debian preserves modified YAML as a conffile. Review any conffile prompt; never accept replacing a production policy blindly.
 5. Validate the retained config, start/restart the service, inspect journald, health and expected channel count/settings. Package configuration can start/restart the service; perform the upgrade in a planned maintenance window.
 6. Re-test the known working multicast source and playback ports with allowed clients. Monitor recovery outcomes, errors and resources. Keep the old backup until acceptance finishes.
 

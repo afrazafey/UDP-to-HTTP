@@ -27,7 +27,9 @@ function setup(
     let code = 200;
     const parsed = new URL(path, "http://localhost");
     switch (parsed.pathname) {
-      case "/api/v1/diagnostics": result={channels:[]}; break;
+      case "/api/v1/diagnostics":
+        result = { channels: [] };
+        break;
       case "/api/v1/dashboard":
         result = data.dashboard;
         break;
@@ -115,6 +117,51 @@ afterEach(() => {
   window.location.hash = "";
 });
 describe("Phase 3 dashboard", () => {
+  it("opens the real channel form from Overview and restores focus on Escape", async () => {
+    setup();
+    renderApp();
+    await screen.findByText("Total Channels");
+    const trigger = screen.getByRole("button", { name: "Add Channel" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Add stream" });
+    expect(
+      within(dialog).getByText("Source configuration"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Advanced receiver settings"),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+  });
+  it("persists the topbar theme against the current revision and preserves staged settings", async () => {
+    const { fetch } = setup();
+    renderApp();
+    await screen.findByText("Total Channels");
+    fireEvent.change(screen.getByLabelText("Dashboard theme"), {
+      target: { value: "dark" },
+    });
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([path, request]) =>
+            path === "/api/v1/settings" && request?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const request = fetch.mock.calls.find(
+      ([path, request]) =>
+        path === "/api/v1/settings" && request?.method === "PUT",
+    )?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      revision: 0,
+      confirm: true,
+      settings: {
+        ...fixture().settings.settings,
+        dashboard: { ...fixture().settings.settings.dashboard, theme: "dark" },
+      },
+    });
+  });
   it("loads real API totals, bounded chart history and unsupported resource states", async () => {
     setup();
     renderApp();
@@ -124,7 +171,7 @@ describe("Phase 3 dashboard", () => {
     expect(
       await screen.findByRole("img", { name: "Network throughput" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("1.50 Mbps")).toBeInTheDocument();
+    expect(screen.getAllByText("1.50 Mbps").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("link", { name: "Monitoring" }));
     await screen.findByText("Process resident memory");
     expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
@@ -135,19 +182,30 @@ describe("Phase 3 dashboard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Service offline",
     );
-    expect(screen.queryByText("Configured channels")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total Channels")).not.toBeInTheDocument();
+  });
+  it("shows a failed playback listener in service health even when the service is running", async () => {
+    const { data } = setup();
+    data.system.http_listeners.push({
+      kind: "playback",
+      address: "127.0.0.1:7781",
+      state: "failed",
+    });
+    renderApp();
+    expect(await screen.findByText("Bind failed")).toBeVisible();
+    expect(screen.getByText("Degraded")).toBeVisible();
   });
   it("navigates with accessible mobile dialog and keyboard focus restoration", async () => {
     setup();
     renderApp();
-    await screen.findByText("Configured channels");
+    await screen.findByText("Total Channels");
     const button = screen.getByRole("button", { name: "Open navigation" });
     button.focus();
     fireEvent.click(button);
     const dialog = screen.getByRole("dialog", { name: "Navigation" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(
-      within(dialog).getByRole("link", { name: "Streams" }),
+      within(dialog).getByRole("link", { name: "Channels" }),
     ).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -160,7 +218,7 @@ describe("Phase 3 dashboard", () => {
   it("pauses polling and supports a confirmed manual refresh", async () => {
     const { fetch } = setup();
     renderApp();
-    await screen.findByText("Configured channels");
+    await screen.findByText("Total Channels");
     fireEvent.click(screen.getByRole("button", { name: "Pause monitoring" }));
     expect(screen.getByText("Monitoring paused")).toBeInTheDocument();
     const before = fetch.mock.calls.length;
@@ -254,7 +312,7 @@ describe("Phase 3 dashboard", () => {
       input_bitrate: 2500000,
     });
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
-    await screen.findByText("2.50 Mbps");
+    expect(await screen.findAllByText("2.50 Mbps")).toHaveLength(2);
     expect(
       screen.getByRole("img", { name: "Network throughput" }),
     ).toHaveTextContent("3 measured samples");

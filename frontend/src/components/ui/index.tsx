@@ -52,6 +52,16 @@ export function Panel({
     </section>
   );
 }
+export function DataTable({ children, caption }: { children: ReactNode; caption?: string }) {
+  return (
+    <div className="op-table-wrap op-adaptive-table">
+      <table role="table">
+        {caption && <caption className="sr-only">{caption}</caption>}
+        {children}
+      </table>
+    </div>
+  );
+}
 export function Badge({ state }: { state: string }) {
   return (
     <span className={`op-badge op-state-${state}`}>
@@ -63,14 +73,19 @@ export function Stat({
   label,
   value,
   detail,
+  icon,
 }: {
   label: string;
   value: ReactNode;
   detail?: string;
+  icon?: ReactNode;
 }) {
   return (
     <div className="op-stat">
-      <span>{label}</span>
+      <span>
+        {icon}
+        {label}
+      </span>
       <strong>{value ?? "—"}</strong>
       {detail && <small>{detail}</small>}
     </div>
@@ -154,11 +169,13 @@ export function Dialog({
   children,
   onClose,
   footer,
+  variant,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   footer?: ReactNode;
+  variant?: "drawer" | "form";
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -183,9 +200,12 @@ export function Dialog({
       if (event.key === "Tab") {
         const nodes = Array.from(
           ref.current?.querySelectorAll<HTMLElement>(
-            "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex='0']",
+            "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary,[tabindex='0']",
           ) ?? [],
-        );
+        ).filter((node) => {
+          const details = node.closest("details:not([open])");
+          return !details || node === details.querySelector("summary");
+        });
         const first = nodes[0],
           last = nodes.at(-1);
         if (event.shiftKey && document.activeElement === first) {
@@ -208,7 +228,7 @@ export function Dialog({
   return createPortal(
     <div className="op-dialog-backdrop">
       <div
-        className="op-dialog"
+        className={`op-dialog ${variant ? `op-dialog-${variant}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}

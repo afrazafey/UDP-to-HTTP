@@ -22,9 +22,9 @@ type Entry struct {
 	Context   map[string]any `json:"context"`
 }
 type Filter struct {
-	Search, Level, StreamID string
-	Since, Until            time.Time
-	Limit, Offset           int
+	Search, Level, StreamID, Component string
+	Since, Until                       time.Time
+	Limit, Offset                      int
 }
 type Repository interface {
 	AppendEvent(context.Context, Entry, int, int) error

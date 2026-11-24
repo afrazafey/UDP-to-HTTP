@@ -143,6 +143,7 @@ func (m *SettingsManager) View(ctx context.Context) (map[string]any, error) {
 		"accepted_revision": r.AcceptedRevision, "restart_required": restartRequired(r.Desired, FromConfig(m.active)), "last_error": r.LastError,
 		"read_only": map[string]any{
 			"advertised_playback_host": m.base.Playlist.AdvertisedHost,
+			"remote_playlist_access":   map[bool]string{true: "Enabled for approved playback and playlist client networks", false: "Disabled"}[m.base.Playlist.RemoteEnabled],
 			"management_binding":       net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)),
 			"storage_path":             m.base.Storage.Path, "authentication": authentication,
 			"trusted_proxies": proxies, "trusted_origins": origins, "forwarded_headers": forwarded,

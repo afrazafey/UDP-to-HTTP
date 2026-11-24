@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — validation candidate, unreleased
+
+- Reworked the operations shell, overview, channel forms, import and playlists, and responsive management screens.
+- Added measured chart range selection, network topology, per-channel monitoring, exact log component filtering, and a redacted system diagnostic copy.
+- Fixed PowerShell coverage argument parsing and added per-runner coverage reporting.
+- Fixed Debian directory entries and added native AMD64/ARM64 install, upgrade, and lifecycle gates.
+- Added browser viewport checks and candidate package inspection with SHA-256 validation.
+
 ## 0.4.0 — validation candidate, unreleased
 
 - Configurable jittered receiver retry and silence rejoin, separate UDP/TS timestamps, operational health/recovery outcomes and structured lifecycle events.

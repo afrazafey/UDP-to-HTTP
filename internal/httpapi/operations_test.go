@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -14,6 +15,26 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/operations"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/storage"
 )
+
+func TestSystemSchemaAndLogComponentFilter(t *testing.T) {
+	s := operationsService(t)
+	w := managementRequest(t, s, "GET", "/api/v1/system", nil, false)
+	var system struct {
+		Schema int `json:"database_schema"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &system); w.Code != 200 || err != nil || system.Schema != 4 {
+		t.Fatalf("schema response: %d %s (%v)", w.Code, w.Body, err)
+	}
+	for component, total := range map[string]int{"stream": 1, "receiver": 0} {
+		w = managementRequest(t, s, "GET", "/api/v1/logs?component="+component, nil, false)
+		var body struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); w.Code != 200 || err != nil || body.Total != total {
+			t.Fatalf("filter %s: %d %s (%v)", component, w.Code, w.Body, err)
+		}
+	}
+}
 
 func operationsService(t *testing.T, configure ...func(*Service)) *Service {
 	t.Helper()

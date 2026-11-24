@@ -1,5 +1,7 @@
 # Production deployment and release gates
 
+For the current Phase 4.1 candidate, track the native AMD64, ARM64, and Windows results in the Phase 4.1 report. Linux CI now uses native Debian staging and exercises the package lifecycle on both architectures. [Phase 4.1 report](PHASE4_1_REPORT.md) · [CI gates](CI_CD_VALIDATION.md)
+
 Phase 4 is a **validation candidate** until [PHASE4_REPORT.md](PHASE4_REPORT.md) gates pass. Keep the working Phase 3 binary/database backup available. The reported TRACE URBAN success predates these changes and is a regression reference, not a Phase 4 certification. Do not replace a live Ubuntu VM automatically.
 
 ## Service operation

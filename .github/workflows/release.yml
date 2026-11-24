@@ -5,7 +5,7 @@ on:
       version:
         description: Candidate version (stable promotion remains manual)
         required: true
-        default: 0.4.0-rc.1
+        default: 0.4.1-rc.1
       create_draft:
         description: Explicit approval to create a draft prerelease after validation
         type: boolean
@@ -39,7 +39,7 @@ jobs:
           python3 scripts/verify-artifacts.py
           for package in build/*.deb; do dpkg-deb --info "$package"; done
           cd build
-          sha256sum --check SHA256SUMS-phase4
+          sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: phase4-release-candidates
@@ -65,5 +65,6 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           cd build
-          sha256sum --check SHA256SUMS-phase4
-          gh release create "v$VERSION" *.tar.gz *.zip *.deb SHA256SUMS-phase4 --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP $VERSION validation candidate" --notes "Phase 4 candidate. Review docs/PHASE4_REPORT.md, platform acceptance results, and ARM64 runtime status before any stable promotion."
+          sha256sum --check SHA256SUMS
+          mapfile -t files < <(cut -c67- SHA256SUMS)
+          gh release create "v$VERSION" "${files[@]}" SHA256SUMS --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP $VERSION validation candidate" --notes "Review docs/PHASE4_1_REPORT.md and native validation results before stable promotion."

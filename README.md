@@ -2,7 +2,11 @@
 
 UDPHTTP Proxy converts authorized IPv4 multicast or unicast **MPEG-TS over UDP** into HTTP streams for VLC, Android TV and other IPTV players. Multiple viewers share one receiver per configured source identity. An embedded React/TypeScript dashboard manages channels, health, imports, playlists and diagnostics; SQLite persists configuration and bounded operational events.
 
-**Phase 4 / 0.4.0 development candidate.** Read [the exact validation report](docs/PHASE4_REPORT.md) before deployment. The user verified real TRACE URBAN multicast playback on Ubuntu before these changes. Phase 4 cross-builds, local synthetic tests and CI definitions do not certify every supported OS or production capacity. This work does not publish a stable release.
+**Phase 4.1 / 0.4.1-dev validation candidate.** The verified TRACE URBAN deployment is the IPTV regression reference. Native Debian and Windows service lifecycle results remain release gates. [Phase 4.1 validation report](docs/PHASE4_1_REPORT.md)
+
+![Desktop operations dashboard at 1360px in Edge with live synthetic UDP traffic](docs/screenshots/overview-1360.png)
+
+Additional Edge captures from the same isolated daemon show the tablet and mobile layouts, dark theme, and mobile channel form. [Tablet](docs/screenshots/overview-768.png) · [Mobile](docs/screenshots/overview-390.png) · [Dark mode](docs/screenshots/overview-dark-1440.png) · [Channel form](docs/screenshots/channel-form-390.png)
 
 ## 1. Overview
 
@@ -44,11 +48,11 @@ Installed binaries embed the frontend and do not require Node or a CDN. Hardware
 
 ## 4. Quick start — Linux
 
-Download an approved candidate's actual files and `SHA256SUMS-phase4`, verify them, then:
+Download an approved candidate's actual files and `SHA256SUMS`, verify them, then:
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS-phase4
-sudo apt install './udphttp-proxy_0.4.0~dev_amd64.deb'
+sha256sum --check --ignore-missing SHA256SUMS
+sudo apt install './udphttp-proxy_0.4.1~dev_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 sudo systemctl status udphttp-proxy --no-pager
 curl --fail http://127.0.0.1:8080/health
@@ -63,13 +67,13 @@ This task creates artifacts locally, not a published tag. After an approved rele
 ```sh
 sudo apt update
 sudo apt install -y curl ca-certificates
-VERSION=0.4.0-dev
-TAG=v0.4.0-dev # Replace with the approved tag that actually contains these artifacts.
+VERSION=0.4.1-dev
+TAG=v0.4.1-dev # Replace with the approved tag that actually contains these artifacts.
 BASE="https://github.com/afrazafey/UDP-to-HTTP/releases/download/$TAG"
-curl --fail --location --output SHA256SUMS-phase4 "$BASE/SHA256SUMS-phase4"
-curl --fail --location --output 'udphttp-proxy_0.4.0~dev_amd64.deb' "$BASE/udphttp-proxy_0.4.0~dev_amd64.deb"
-sha256sum --check --ignore-missing SHA256SUMS-phase4
-sudo apt install './udphttp-proxy_0.4.0~dev_amd64.deb'
+curl --fail --location --output SHA256SUMS "$BASE/SHA256SUMS"
+curl --fail --location --output 'udphttp-proxy_0.4.1~dev_amd64.deb' "$BASE/udphttp-proxy_0.4.1~dev_amd64.deb"
+sha256sum --check --ignore-missing SHA256SUMS
+sudo apt install './udphttp-proxy_0.4.1~dev_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 ```
 
@@ -81,7 +85,7 @@ Use the same verified `.deb` installation and systemd commands as Ubuntu. Select
 
 ## 7. Windows installation
 
-Verify `udphttp-proxy_0.4.0-dev_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
+Verify `udphttp-proxy_0.4.1-dev_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
 
 ```powershell
 .\udphttp-proxy.exe interfaces
@@ -114,8 +118,8 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python3 scripts/build-release.py --version 0.4.0-dev
-dpkg-deb --info './build/udphttp-proxy_0.4.0~dev_amd64.deb'
+python3 scripts/build-release.py --version 0.4.1-dev
+dpkg-deb --info './build/udphttp-proxy_0.4.1~dev_amd64.deb'
 ```
 
 `scripts/build-deb.sh amd64 VERSION BINARY` remains a wrapper around the portable Debian builder. Linux CI separately inspects, installs, upgrades, removes and purges packages. Set `SOURCE_DATE_EPOCH` for deterministic archive timestamps. Binaries link version/actual source SHA/build time; dirty checkouts are labeled. Source `go run` without release metadata explicitly says unlinked-source rather than inventing a build timestamp.
@@ -133,7 +137,7 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python scripts/build-release.py --version 0.4.0-dev
+python scripts/build-release.py --version 0.4.1-dev
 & .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 

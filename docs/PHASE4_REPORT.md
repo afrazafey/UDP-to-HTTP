@@ -1,5 +1,7 @@
 # Phase 4 production reliability report
 
+This report records the Phase 4 baseline. The Phase 4.1 follow-up fixes the coverage argument and Debian archive construction and adds browser layout evidence. [Phase 4.1 report](PHASE4_1_REPORT.md)
+
 Date: 2026-11-24 (Indian/Maldives). Target 0.4.0; local artifacts are **0.4.0-dev validation candidates**. Baseline commit: `35204787ef5f0efb726c72216a60fcbbb62c2846`; changes remain uncommitted and candidate metadata marks the dirty source. No push, live deployment, CI dispatch or release publication is performed.
 
 **Phase 4 is not declared production-complete.** Functional implementation is provided, but required Linux/ARM64/SCM/race/packaging/soak acceptance is still blocked or pending. Do not promote a stable release from these local checks. The user-reported Phase 3 TRACE URBAN success is retained as a regression reference and has not been repeated on the live Ubuntu VM.

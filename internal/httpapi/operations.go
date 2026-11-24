@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -69,7 +70,17 @@ func (s *Service) systemInfo(w http.ResponseWriter, r *http.Request) {
 		authentication = "enforced by configured reverse proxy; native remote binding prohibited"
 		proxies = append(proxies, s.options.Config.Management.ReverseProxy.TrustedProxies...)
 	}
-	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + direct/trusted-proxy Host + Origin/Referer + fetch metadata + CSRF on writes; local users are trusted", "remote_authentication": authentication, "trusted_proxies": proxies, "reverse_proxy": s.options.Config.Management.ReverseProxy, "linux_acceptance": "pending"})
+	var schema *int
+	if store, ok := s.options.Store.(interface {
+		SchemaVersion(context.Context) (int, error)
+	}); ok {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if version, err := store.SchemaVersion(ctx); err == nil {
+			schema = &version
+		}
+		cancel()
+	}
+	writeJSON(w, 200, map[string]any{"version": buildinfo.Version, "commit": buildinfo.Commit, "build_date": buildinfo.Date, "go_version": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "process_id": os.Getpid(), "started_at": s.started, "uptime_seconds": int64(time.Since(s.started).Seconds()), "goroutines": sample.Goroutines, "resources": sample, "interfaces": items, "configuration_path": path, "database_ready": s.databaseOK(r.Context()), "database_schema": schema, "http_listeners": s.options.Listeners, "dropped_log_events": dropped, "management_policy": "loopback peer + direct/trusted-proxy Host + Origin/Referer + fetch metadata + CSRF on writes; local users are trusted", "remote_authentication": authentication, "trusted_proxies": proxies, "reverse_proxy": s.options.Config.Management.ReverseProxy, "linux_acceptance": "pending"})
 }
 
 type settingsRequest struct {
@@ -178,8 +189,8 @@ func (s *Service) clientAction(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 func logFilter(r *http.Request) (events.Filter, error) {
-	f := events.Filter{Search: r.URL.Query().Get("search"), Level: r.URL.Query().Get("level"), StreamID: r.URL.Query().Get("stream_id"), Limit: 50}
-	if len(f.Search) > 128 || len(f.StreamID) > 64 {
+	f := events.Filter{Search: r.URL.Query().Get("search"), Level: r.URL.Query().Get("level"), StreamID: r.URL.Query().Get("stream_id"), Component: r.URL.Query().Get("component"), Limit: 50}
+	if len(f.Search) > 128 || len(f.StreamID) > 64 || len(f.Component) > 64 {
 		return f, errors.New("log search is too long")
 	}
 	if f.Level != "" && f.Level != "debug" && f.Level != "info" && f.Level != "warn" && f.Level != "error" {

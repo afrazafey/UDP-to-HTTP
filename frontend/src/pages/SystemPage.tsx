@@ -1,23 +1,77 @@
 import type { OperationsData } from "../types/operations";
+import { Clock3, Database, Monitor, Server } from "lucide-react";
 import { bytes, duration, timestamp } from "../utils/format";
-import { Badge, Definition, Panel } from "../components/ui";
+import { Badge, CopyButton, DataTable, Definition, Empty, Panel, Stat } from "../components/ui";
 export function SystemPage({ data }: { data: OperationsData }) {
   const s = data.system;
+  const diagnostic = JSON.stringify(
+    {
+      version: s.version,
+      commit: s.commit,
+      built: s.build_date,
+      os: s.os,
+      architecture: s.architecture,
+      go: s.go_version,
+      uptime_seconds: s.uptime_seconds,
+      database_ready: s.database_ready,
+      database_schema: s.database_schema ?? null,
+      listener_states: s.http_listeners.map((l) => ({
+        kind: l.kind,
+        state: l.state,
+      })),
+    },
+    null,
+    2,
+  );
   return (
     <>
-      <div className="op-two-column">
-        <Panel title="Application & runtime">
+      <div className="op-page-metrics op-system-metrics">
+        <Stat label="Application version" value={s.version} icon={<Server size={18} />} />
+        <Stat label="Platform" value={`${s.os} / ${s.architecture}`} icon={<Monitor size={18} />} />
+        <Stat label="Process uptime" value={duration(s.uptime_seconds)} icon={<Clock3 size={18} />} />
+        <Stat label="Database status" value={s.database_ready ? "Ready" : "Unavailable"} icon={<Database size={18} />} />
+      </div>
+      <Panel title="HTTP listener status">
+        {s.http_listeners.length ? <DataTable>
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader" scope="col">Listener</th>
+              <th role="columnheader" scope="col">Actual address</th>
+              <th role="columnheader" scope="col">State</th>
+              <th role="columnheader" scope="col">Details</th>
+            </tr>
+          </thead>
+          <tbody role="rowgroup">
+            {s.http_listeners.map((l, i) => (
+              <tr role="row" key={i}>
+                <td role="cell" data-label="Listener" data-primary>{l.kind}</td>
+                <td role="cell" data-label="Actual address" className="mono">{l.address}</td>
+                <td role="cell" data-label="State">
+                  <Badge state={l.state} />
+                </td>
+                <td role="cell" data-label="Details">{l.error || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable> : <Empty title="No HTTP listeners reported" />}
+      </Panel>
+      <div className="op-workspace-columns">
+        <Panel
+          title="Application & runtime"
+          action={
+            <CopyButton
+              value={diagnostic}
+              label="Copy diagnostic information"
+            />
+          }
+        >
           <Definition
             items={[
-              ["Application version", s.version],
               ["Build commit", s.commit],
               ["Build date", s.build_date],
               ["Go runtime", s.go_version],
-              ["Operating system", s.os],
-              ["CPU architecture", s.architecture],
               ["Process ID", s.process_id],
               ["Started", timestamp(s.started_at)],
-              ["Process uptime", duration(s.uptime_seconds)],
               ["Goroutines", s.goroutines],
             ]}
           />
@@ -31,6 +85,7 @@ export function SystemPage({ data }: { data: OperationsData }) {
                 <Badge state={s.database_ready ? "ready" : "error"} />,
               ],
               ["Management policy", s.management_policy],
+              ["Database schema", s.database_schema ?? "Unavailable"],
               ["Remote administration", s.remote_authentication],
               [
                 "Trusted reverse proxies",
@@ -46,61 +101,33 @@ export function SystemPage({ data }: { data: OperationsData }) {
           />
         </Panel>
       </div>
-      <Panel title="HTTP listener status">
-        <div className="op-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Listener</th>
-                <th>Actual address</th>
-                <th>State</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.http_listeners.map((l, i) => (
-                <tr key={i}>
-                  <td>{l.kind}</td>
-                  <td className="mono">{l.address}</td>
-                  <td>
-                    <Badge state={l.state} />
-                  </td>
-                  <td>{l.error || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
       <Panel title="Detected network interfaces">
-        <div className="op-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name / index</th>
-                <th>IPv4</th>
-                <th>MAC</th>
-                <th>State</th>
-                <th>Multicast</th>
-                <th>MTU</th>
+        {s.interfaces.length ? <DataTable>
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader" scope="col">Name / index</th>
+              <th role="columnheader" scope="col">IPv4</th>
+              <th role="columnheader" scope="col">MAC</th>
+              <th role="columnheader" scope="col">State</th>
+              <th role="columnheader" scope="col">Multicast</th>
+              <th role="columnheader" scope="col">MTU</th>
+            </tr>
+          </thead>
+          <tbody role="rowgroup">
+            {s.interfaces.map((i) => (
+              <tr role="row" key={i.index}>
+                <td role="cell" data-label="Name / index" data-primary>
+                  {i.name} / {i.index}
+                </td>
+                <td role="cell" data-label="IPv4">{i.ipv4.join(", ") || "No IPv4"}</td>
+                <td role="cell" data-label="MAC">{("mac" in i && String(i.mac)) || "Unavailable"}</td>
+                <td role="cell" data-label="State">{i.up ? "Up" : "Down"}</td>
+                <td role="cell" data-label="Multicast">{i.multicast ? "Supported" : "Unavailable"}</td>
+                <td role="cell" data-label="MTU">{i.mtu}</td>
               </tr>
-            </thead>
-            <tbody>
-              {s.interfaces.map((i) => (
-                <tr key={i.index}>
-                  <td>
-                    {i.name} / {i.index}
-                  </td>
-                  <td>{i.ipv4.join(", ") || "No IPv4"}</td>
-                  <td>{("mac" in i && String(i.mac)) || "Unavailable"}</td>
-                  <td>{i.up ? "Up" : "Down"}</td>
-                  <td>{i.multicast ? "Supported" : "Unavailable"}</td>
-                  <td>{i.mtu}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </DataTable> : <Empty title="No interfaces reported" />}
       </Panel>
     </>
   );
