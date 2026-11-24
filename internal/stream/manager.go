@@ -492,6 +492,9 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 	opened := time.Now()
 	for ctx.Err() == nil {
 		n, accepted, err := r.Read(ctx, buffer)
+		if n < 0 || n > len(buffer) {
+			return fmt.Errorf("invalid UDP read length: %d", n)
+		}
 		now := time.Now()
 		if err != nil {
 			var ne net.Error

@@ -3,6 +3,7 @@
 package operations
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -21,9 +22,13 @@ func processUsage() (*float64, *uint64) {
 	if data, err := os.ReadFile("/proc/self/statm"); err == nil {
 		fields := strings.Fields(string(data))
 		if len(fields) > 1 {
-			if pages, e := strconv.ParseUint(fields[1], 10, 64); e == nil {
-				value := pages * uint64(os.Getpagesize())
-				rss = &value
+			pageSize := os.Getpagesize()
+			if pageSize > 0 {
+				bytesPerPage := uint64(pageSize)
+				if pages, e := strconv.ParseUint(fields[1], 10, 64); e == nil && pages <= math.MaxUint64/bytesPerPage {
+					value := pages * bytesPerPage
+					rss = &value
+				}
 			}
 		}
 	}

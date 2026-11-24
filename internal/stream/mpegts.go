@@ -33,9 +33,8 @@ func (f *Framer) Push(data []byte) ([]byte, FrameStats) {
 				}
 			}
 			if found < 0 {
-				keep := 2 * PacketSize
-				if len(f.pending) > keep {
-					discard := len(f.pending) - keep
+				discard := len(f.pending) - 2*PacketSize
+				if discard > 0 {
 					stats.DiscardedBytes += uint64(discard)
 					f.pending = append([]byte(nil), f.pending[discard:]...)
 				}

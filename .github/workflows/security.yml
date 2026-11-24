@@ -25,6 +25,8 @@ jobs:
           mkdir -p build
           go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 -no-fail -fmt=json -out=build/gosec-raw.json ./cmd/... ./internal/...
           jq 'del(.Issues[]?.code)' build/gosec-raw.json > build/gosec.json
+          jq -r '.Issues[]? | select(.severity == "HIGH") | "\(.file):\(.line) \(.rule_id): \(.details)"' build/gosec.json
+          jq -r '(."Golang errors" // {}) | keys[] | "gosec could not analyze \(.)"' build/gosec.json
           jq -e '((."Golang errors" // {}) | length == 0) and ([.Issues[]? | select(.severity == "HIGH")] | length == 0)' build/gosec.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -33,6 +35,17 @@ jobs:
           path: build/gosec.json
   codeql:
     if: ${{ !github.event.repository.private || vars.ENABLE_CODEQL == 'true' }}
+    name: CodeQL (${{ matrix.language }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -42,8 +55,17 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        if: matrix.language == 'go'
+        with:
+          go-version: '1.27.x'
       - uses: github/codeql-action/init@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
         with:
-          languages: go, javascript-typescript, actions
-          build-mode: none
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Build Go for CodeQL
+        if: matrix.language == 'go'
+        run: go build -a ./...
       - uses: github/codeql-action/analyze@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -1,7 +1,8 @@
 package stream
 
 import (
-	"math/rand/v2"
+	"crypto/rand"
+	"encoding/binary"
 	"time"
 )
 
@@ -16,7 +17,10 @@ func DefaultRecovery() RecoveryPolicy {
 	return RecoveryPolicy{Enabled: true, MinDelay: 250 * time.Millisecond, MaxDelay: 30 * time.Second, RejoinAfter: 30 * time.Second, Jitter: 0.2}
 }
 func (p RecoveryPolicy) delay(base time.Duration) time.Duration {
-	return max(p.MinDelay, min(p.MaxDelay, time.Duration(float64(base)*(1-p.Jitter+rand.Float64()*2*p.Jitter))))
+	var random [8]byte
+	rand.Read(random[:])
+	unit := float64(binary.LittleEndian.Uint64(random[:])>>11) / (1 << 53)
+	return max(p.MinDelay, min(p.MaxDelay, time.Duration(float64(base)*(1-p.Jitter+unit*2*p.Jitter))))
 }
 func (m *Manager) healthLocked(e *entry) string {
 	if !e.channel.Enabled || m.options.Disabled {
