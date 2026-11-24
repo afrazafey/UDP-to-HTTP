@@ -8,15 +8,15 @@ Targets: Ubuntu 22.04/24.04 and Debian 12+, AMD64 and ARM64. The user verified P
 
 ## Obtain and verify a candidate
 
-This work builds local artifacts; it does not publish a GitHub release. Once an approved tag has matching artifacts, download `SHA256SUMS`, `udphttp-proxy_0.4.2~rc.1_amd64.deb` and/or `udphttp-proxy_0.4.2-rc.1_linux_amd64.tar.gz` from that release. Use `arm64` for an ARM64 OS; check `uname -m` (`x86_64` → amd64, `aarch64` → arm64). Never assume an unverified tag exists.
+This work builds local artifacts; it does not publish a GitHub release. Once an approved tag has matching artifacts, download `SHA256SUMS`, `udphttp-proxy_0.4.3~rc.1_amd64.deb` and/or `udphttp-proxy_0.4.3-rc.1_linux_amd64.tar.gz` from that release. Use `arm64` for an ARM64 OS; check `uname -m` (`x86_64` → amd64, `aarch64` → arm64). Never assume an unverified tag exists.
 
 ```sh
 sudo apt update
 sudo apt install -y curl ca-certificates
 # In the downloaded artifact directory:
 sha256sum --check --ignore-missing SHA256SUMS
-dpkg-deb --info './udphttp-proxy_0.4.2~rc.1_amd64.deb'
-sudo apt install './udphttp-proxy_0.4.2~rc.1_amd64.deb'
+dpkg-deb --info './udphttp-proxy_0.4.3~rc.1_amd64.deb'
+sudo apt install './udphttp-proxy_0.4.3~rc.1_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 sudo systemctl status udphttp-proxy --no-pager
 curl --fail http://127.0.0.1:8080/health
@@ -55,8 +55,8 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python3 scripts/build-release.py --version 0.4.2-rc.1
-dpkg-deb --contents './build/udphttp-proxy_0.4.2~rc.1_amd64.deb'
+python3 scripts/build-release.py --version 0.4.3-rc.1
+dpkg-deb --contents './build/udphttp-proxy_0.4.3~rc.1_amd64.deb'
 python3 scripts/linux-smoke.py --binary build/udphttp-proxy-linux-amd64
 python3 scripts/load-test.py --binary build/udphttp-proxy-linux-amd64
 ```

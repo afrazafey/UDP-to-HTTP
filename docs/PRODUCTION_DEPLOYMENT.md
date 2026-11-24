@@ -1,6 +1,21 @@
 # Production deployment and release gates
 
-For the current Phase 4.2 candidate, track the native AMD64, ARM64, and Windows results in the Phase 4.2 report. Linux CI now uses native Debian staging and exercises the package lifecycle on both architectures. [Phase 4.2 report](PHASE4_2_REPORT.md) · [CI gates](CI_CD_VALIDATION.md)
+## Ubuntu 24.04 and Jellyfin example
+
+On `AMVVEL1SUDPHTTP`, select multicast interface `enp0s31f6`, bind
+playback to `10.14.0.23`, and keep management on loopback. Start with
+the single Jellyfin client `10.14.0.5/32` and add client networks as
+needed. Copy the existing channel playback URL into Jellyfin, for example
+`http://10.14.0.23:7781/live/channel-id.ts`. Use 7782 for secondary
+playback. Enable remote playlist downloads only if clients need them.
+[Example YAML](../configs/production-network.example.yaml)
+
+Test the candidate and back up the active YAML and database before the
+maintenance window. Once the dashboard has saved settings, edit playback
+policy there unless you intend to change how persisted settings are loaded.
+[Upgrade procedure](UPGRADE.md)
+
+For the current Phase 4.3 candidate, track the native AMD64, ARM64, and Windows results in the Phase 4.3 report. Linux CI now uses native Debian staging and exercises the package lifecycle on both architectures. [Phase 4.3 report](PHASE4_3_REPORT.md) · [CI gates](CI_CD_VALIDATION.md)
 
 Retain the last working binary and a verified database backup. The existing TRACE URBAN deployment is the playback regression reference for this candidate. Apply changes during an approved maintenance window.
 

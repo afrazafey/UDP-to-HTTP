@@ -5,6 +5,7 @@ import type {
   SettingsView,
 } from "../../types/operations";
 import { mutate } from "../../services/api";
+import { NetworkList } from "./NetworkList";
 import {
   Button,
   CopyButton,
@@ -121,22 +122,14 @@ export function NetworkFields({
           }
         />
       </Field>
-      <Field
+      <NetworkList
         label="Explicit playback bind addresses"
-        help="Optional comma-separated assigned IPv4 addresses. 0.0.0.0 is an explicit wildcard and must stand alone."
-      >
-        <input
-          value={(value.http_bind_addresses ?? []).join(", ")}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              http_bind_addresses: e.target.value
-                .split(",")
-                .map((s) => s.trim()),
-            })
-          }
-        />
-      </Field>
+        help="Optional assigned IPv4 addresses. Use 0.0.0.0 by itself for all local interfaces."
+        example="10.14.0.23"
+        kind="bind"
+        value={value.http_bind_addresses ?? []}
+        onChange={(http_bind_addresses) => onChange({ ...value, http_bind_addresses })}
+      />
     </div>
   );
 }
@@ -148,32 +141,22 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
   const [preview, setPreview] = useState<{
     settings: Settings;
     notes: string[];
+    broadened: boolean;
   } | null>(null);
   const [rollback, setRollback] = useState(false);
+  const [saved, setSaved] = useState(view.settings);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const broadened = preview?.broadened;
   const action = useAction();
-  const clean = () => {
-    const copy = structuredClone(draft);
-    copy.network.http_bind_addresses =
-      copy.network.http_bind_addresses?.filter(Boolean);
-    copy.streaming.allowed_client_networks =
-      copy.streaming.allowed_client_networks.filter(Boolean);
-    copy.streaming.allowed_multicast_groups =
-      copy.streaming.allowed_multicast_groups.filter(Boolean);
-    copy.streaming.allowed_unicast_sources =
-      copy.streaming.allowed_unicast_sources.filter(Boolean);
-    copy.streaming.blocked_multicast_networks =
-      copy.streaming.blocked_multicast_networks.filter(Boolean);
-    return copy;
-  };
   const validate = async () => {
-    const proposal = clean();
     await action.run(async () => {
-      const result = await mutate<{ notes: string[] }>(
+      const result = await mutate<{ notes: string[]; preview: Settings; requires_all_multicast_confirmation: boolean }>(
         "/api/v1/settings/validate",
         "POST",
-        { revision, settings: proposal },
+        { revision, settings: draft },
       );
-      setPreview({ settings: proposal, notes: result.notes });
+      setConfirmAll(false);
+      setPreview({ settings: result.preview, notes: result.notes, broadened: result.requires_all_multicast_confirmation });
     }, "Configuration validation completed");
   };
   const dialog = preview ? (
@@ -187,17 +170,18 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
           </Button>
           <Button
             className="primary"
-            disabled={action.busy}
+            disabled={action.busy || (broadened && !confirmAll)}
             onClick={async () => {
               if (
                 await action.run(async () => {
                   const result = await mutate<SettingsView>(
                     "/api/v1/settings",
                     "PUT",
-                    { revision, settings: preview.settings, confirm: true },
+                    { revision, settings: preview.settings, confirm: true, confirm_all_multicast: Boolean(broadened && confirmAll) },
                   );
                   setRevision(result.revision);
                   setDraft(result.settings);
+                  setSaved(result.settings);
                 }, "Settings saved and confirmed by the daemon")
               ) {
                 setPreview(null);
@@ -211,9 +195,8 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
       }
     >
       <p>
-        Playback listener and streaming changes apply after a process restart.
-        Management binding stays unchanged. A failed playback bind restores the
-        last accepted settings; local management remains available.
+        Playback access changes apply as soon as you save. Other playback
+        settings may require a service restart.
       </p>
       {action.error && <ErrorBanner>{action.error}</ErrorBanner>}
       <ul className="op-notes">
@@ -221,8 +204,14 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
           <li key={note}>{note}</li>
         ))}
       </ul>
+      {broadened && (
+        <label className="op-policy-warning">
+          <input type="checkbox" checked={confirmAll} onChange={(event) => setConfirmAll(event.target.checked)} />
+          <span>I confirm that any IPv4 multicast group can be selected unless it is reserved or blocked.</span>
+        </label>
+      )}
       <details>
-        <summary>Exact configuration preview</summary>
+        <summary>Effective configuration preview</summary>
         <pre>{JSON.stringify(preview.settings, null, 2)}</pre>
       </details>
     </Dialog>
@@ -246,6 +235,7 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
                     { revision: view.revision, confirm: true },
                   );
                   setDraft(result.settings);
+                  setSaved(result.settings);
                   setRevision(result.revision);
                 }, "Last accepted settings restored")
               ) {
@@ -290,13 +280,14 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
           Previous startup restored accepted settings: {view.last_error}
         </ErrorBanner>
       )}
-      {revision !== view.revision && (
+      {view.revision > revision && (
         <ErrorBanner>
           Settings changed since this form loaded. Reload the latest revision
           before saving.{" "}
           <Button
             onClick={() => {
               setDraft(structuredClone(view.settings));
+              setSaved(view.settings);
               setRevision(view.revision);
             }}
           >
@@ -317,5 +308,7 @@ export function useSettingsEditor(view: SettingsView, refresh: () => void) {
     dialog,
     status,
     busy: action.busy,
+    dirty: JSON.stringify(saved) !== JSON.stringify(draft),
+    reset: () => setDraft(structuredClone(saved)),
   };
 }

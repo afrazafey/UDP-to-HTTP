@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,9 +26,12 @@ func (s *Store) InitServerSettings(ctx context.Context, value operations.Setting
 	return err
 }
 func (s *Store) ReadServerSettings(ctx context.Context) (operations.Record, error) {
+	return readServerSettings(s.db.QueryRowContext(ctx, "SELECT revision,accepted_revision,desired,accepted,last_error FROM server_settings WHERE id=1"))
+}
+func readServerSettings(row *sql.Row) (operations.Record, error) {
 	var r operations.Record
 	var desired, accepted string
-	err := s.db.QueryRowContext(ctx, "SELECT revision,accepted_revision,desired,accepted,last_error FROM server_settings WHERE id=1").Scan(&r.Revision, &r.AcceptedRevision, &desired, &accepted, &r.LastError)
+	err := row.Scan(&r.Revision, &r.AcceptedRevision, &desired, &accepted, &r.LastError)
 	if err != nil {
 		return r, err
 	}
@@ -37,18 +42,11 @@ func (s *Store) ReadServerSettings(ctx context.Context) (operations.Record, erro
 	return r, err
 }
 func (s *Store) WriteServerSettings(ctx context.Context, revision int64, value operations.Settings) (operations.Record, error) {
-	result, err := s.db.ExecContext(ctx, "UPDATE server_settings SET desired=?, revision=revision+1,last_error='' WHERE id=1 AND revision=?", operations.Encode(value), revision)
-	if err != nil {
-		return operations.Record{}, err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return operations.Record{}, err
-	}
-	if n == 0 {
+	r, err := s.updateServerSettings(ctx, "UPDATE server_settings SET desired=?, revision=revision+1,last_error='' WHERE id=1 AND revision=?", operations.Encode(value), revision)
+	if errors.Is(err, sql.ErrNoRows) {
 		return operations.Record{}, operations.ErrRevision
 	}
-	return s.ReadServerSettings(ctx)
+	return r, err
 }
 func (s *Store) AcceptServerSettings(ctx context.Context, revision int64) error {
 	result, err := s.db.ExecContext(ctx, "UPDATE server_settings SET accepted=desired,accepted_revision=revision WHERE id=1 AND revision=?", revision)
@@ -62,11 +60,19 @@ func (s *Store) AcceptServerSettings(ctx context.Context, revision int64) error 
 	return nil
 }
 func (s *Store) RollbackServerSettings(ctx context.Context, message string) (operations.Record, error) {
-	_, err := s.db.ExecContext(ctx, "UPDATE server_settings SET desired=accepted,revision=revision+1,accepted_revision=revision+1,last_error=? WHERE id=1", events.Redact(message))
+	return s.updateServerSettings(ctx, "UPDATE server_settings SET desired=accepted,revision=revision+1,accepted_revision=revision+1,last_error=? WHERE id=1", events.Redact(message))
+}
+func (s *Store) updateServerSettings(ctx context.Context, statement string, args ...any) (operations.Record, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return operations.Record{}, err
 	}
-	return s.ReadServerSettings(ctx)
+	defer tx.Rollback()
+	r, err := readServerSettings(tx.QueryRowContext(ctx, statement+" RETURNING revision,accepted_revision,desired,accepted,last_error", args...))
+	if err != nil {
+		return operations.Record{}, err
+	}
+	return r, tx.Commit()
 }
 func (s *Store) AppendEvent(ctx context.Context, e events.Entry, count, days int) error {
 	data, err := json.Marshal(e.Context)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3-rc.1
+
+- Accept IPs, CIDRs, comma-separated lists, and multiline lists in network settings. Normalize ranges and duplicates before applying policy.
+- Allow IPv4 multicast and unicast source CIDRs. Reserved multicast and configured multicast blocklists take precedence.
+- Apply playback client and source policy updates without restarting listeners. Disconnect affected viewers and retain saved channel metadata.
+- Add network list editors, multicast allow-all confirmation, and a backend policy tester for active and draft settings.
+- Generate the Go release SBOM from the daemon command package and test Debian upgrades from 0.4.2-rc.1.
+
 ## 0.4.2-rc.1
 
 - Distinguish the deployment environment, service health, and release maturity in the dashboard. Attribute UDPHTTP Proxy to Afraaz in the UI, CLI, and package metadata. [Developer website](https://afraaz.xyz)

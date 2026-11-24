@@ -4,7 +4,7 @@ on:
     inputs:
       version:
         type: string
-        default: 0.4.2-rc.1
+        default: 0.4.3-rc.1
 permissions:
   contents: read
 jobs:
@@ -39,7 +39,7 @@ jobs:
           go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./... | tee build/security/govulncheck.txt
           npm --prefix frontend audit --audit-level=high --json > build/security/npm-audit.json
           npm --prefix frontend audit --omit=dev --audit-level=high --json > build/security/npm-audit-production.json
-          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0 app -json -output build/security/go-sbom.json .
+          CGO_ENABLED=0 go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0 app -main cmd/udphttp-proxy -json -output build/security/go-sbom.json .
           npm --prefix frontend sbom --sbom-format cyclonedx --omit=dev > build/security/frontend-sbom.json
       - name: Build and verify immutable candidate artifacts
         shell: bash
@@ -61,7 +61,7 @@ jobs:
           (cd build/candidate && sha256sum artifact-secrets.json credential-patterns.json >> SHA256SUMS)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: phase42-candidate
+          name: release-candidate
           path: build/candidate/
           if-no-files-found: error
           retention-days: 30
@@ -95,7 +95,7 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: phase42-candidate
+          name: release-candidate
           path: build/candidate
       - run: python scripts/verify-artifacts.py --directory build/candidate
       - run: npm ci && npm run typecheck && npm test && npm run build
@@ -131,9 +131,9 @@ jobs:
         env:
           UDPHTTP_CAPTURE_ROUTES: '1'
         run: |
-          npm install --prefix .tools/phase42-browser --no-save playwright-core@1.65.1
-          node .tools/phase42-browser/node_modules/playwright-core/cli.js install --with-deps chromium
-          node scripts/check-dashboard.mjs build/candidate/udphttp-proxy-linux-amd64 build/dashboard-screenshots ./.tools/phase42-browser/node_modules/playwright-core
+          npm install --prefix .tools/release-browser --no-save playwright-core@1.65.1
+          node .tools/release-browser/node_modules/playwright-core/cli.js install --with-deps chromium
+          node scripts/check-dashboard.mjs build/candidate/udphttp-proxy-linux-amd64 build/dashboard-screenshots ./.tools/release-browser/node_modules/playwright-core
       - name: Linux smoke and resource load
         if: runner.os == 'Linux'
         shell: bash
@@ -149,7 +149,7 @@ jobs:
           set -euo pipefail
           baseline=$(mktemp -d)
           trap 'rm -rf -- "$baseline"' EXIT
-          git archive dbda0c0b8ab6272522847b436c19ad78a2091735 | tar -x -C "$baseline"
+          git archive 83f4008862e0696de425c9891f434bf229d26672 | tar -x -C "$baseline"
           (cd "$baseline" && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$baseline/udphttp-proxy" ./cmd/udphttp-proxy)
           python scripts/load-test.py --binary "$baseline/udphttp-proxy" --duration 30 --report build/load-baseline.json
       - name: Debian archive, clean install, upgrades, and systemd lifecycle
@@ -177,7 +177,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: phase42-validation-${{ matrix.os }}
+          name: release-validation-${{ matrix.os }}
           path: |
             build/*.json*
             build/*.txt

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
 )
 
@@ -41,6 +42,10 @@ type Policy struct {
 	AllowLoopbackUnicast     bool
 }
 
+func (p Policy) Compile() (netpolicy.Sources, error) {
+	return netpolicy.CompileSources(p.AllowedMulticastGroups, p.BlockedMulticastNetworks, p.AllowedUnicastSources, p.AllowLoopbackUnicast)
+}
+
 var channelID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 func (c Channel) Defaults(maxClients, buffer, udpBuffer int) Channel {
@@ -62,6 +67,29 @@ func (c Channel) Defaults(maxClients, buffer, udpBuffer int) Channel {
 	return c
 }
 func (c Channel) Validate(p Policy) error {
+	sources, err := p.Compile()
+	if err != nil {
+		return err
+	}
+	return c.ValidateWithSources(sources)
+}
+
+func (c Channel) ValidateWithSources(sources netpolicy.Sources) error {
+	if err := c.ValidateStructure(); err != nil {
+		return err
+	}
+	if decision := c.SourceDecision(sources); !decision.Allowed {
+		return errors.New(decision.Reason)
+	}
+	return nil
+}
+
+func (c Channel) SourceDecision(sources netpolicy.Sources) netpolicy.Decision {
+	ip, _ := netip.ParseAddr(c.SourceAddress)
+	return sources.Check(c.SourceType, ip)
+}
+
+func (c Channel) ValidateStructure() error {
 	for _, value := range []string{c.TVGID, c.TVGName, c.Group} {
 		if len(value) > 256 || strings.ContainsAny(value, "\"\r\n") {
 			return errors.New("playlist metadata must be at most 256 bytes without quotes or line breaks")
@@ -96,6 +124,9 @@ func (c Channel) Validate(p Policy) error {
 	if err != nil || !ip.Is4() {
 		return errors.New("source_address must be a literal IPv4 address")
 	}
+	if c.SourceType != "multicast" && c.SourceType != "unicast" {
+		return errors.New("source_type must be multicast or unicast")
+	}
 	if c.SourcePort < 1 || c.SourcePort > 65535 {
 		return errors.New("source_port must be 1..65535")
 	}
@@ -108,40 +139,6 @@ func (c Channel) Validate(p Policy) error {
 		}
 	} else if len(c.Interface) > 256 || strings.TrimSpace(c.Interface) == "" || strings.ContainsAny(c.Interface, "/\\\r\n\x00") {
 		return errors.New("invalid interface name")
-	}
-	allowed := false
-	switch c.SourceType {
-	case "multicast":
-		if !ip.IsMulticast() {
-			return errors.New("multicast source_address must be in 224.0.0.0/4")
-		}
-		if netip.MustParsePrefix("224.0.0.0/24").Contains(ip) {
-			return errors.New("reserved local-control multicast groups 224.0.0.0/24 are always blocked")
-		}
-		for _, cidr := range p.BlockedMulticastNetworks {
-			prefix, e := netip.ParsePrefix(cidr)
-			if e != nil {
-				return errors.New("invalid blocked multicast policy")
-			}
-			if prefix.Contains(ip) {
-				return fmt.Errorf("multicast group is blocked by %s", cidr)
-			}
-		}
-		for _, address := range p.AllowedMulticastGroups {
-			allowed = allowed || address == ip.String()
-		}
-	case "unicast":
-		if !ip.IsGlobalUnicast() && !(ip.IsLoopback() && p.AllowLoopbackUnicast) {
-			return errors.New("unicast source must be a unicast IPv4 sender; loopback requires explicit permission")
-		}
-		for _, address := range p.AllowedUnicastSources {
-			allowed = allowed || address == ip.String()
-		}
-	default:
-		return errors.New("source_type must be multicast or unicast")
-	}
-	if !allowed {
-		return errors.New("source address is not in the corresponding server allowlist")
 	}
 	if c.IdleTimeoutSeconds < 0 || c.IdleTimeoutSeconds > 86400 {
 		return errors.New("idle_timeout_seconds must be 0..86400")

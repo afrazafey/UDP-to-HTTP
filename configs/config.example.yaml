@@ -38,9 +38,9 @@ streaming:
   max_clients: 100
   connect_timeout: 10s
   allowed_client_networks: [] # Deny all playback until explicitly configured.
-  allowed_multicast_groups: []
-  allowed_unicast_sources: []
-  blocked_multicast_networks: ["224.0.0.0/24"]
+  allowed_multicast_groups: [] # IPv4 groups or CIDRs within 224.0.0.0/4.
+  allowed_unicast_sources: [] # IPv4 sender addresses or CIDRs.
+  blocked_multicast_networks: ["224.0.0.0/24"] # Blocks override multicast allows.
   allow_loopback_unicast: false
   max_streams: 128
   client_buffer_bytes: 262144

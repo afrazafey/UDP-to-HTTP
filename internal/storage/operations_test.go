@@ -67,11 +67,11 @@ func TestSettingsRevisionsPersistenceAndRollback(t *testing.T) {
 	}
 	next := operations.FromConfig(base)
 	next.Dashboard.Name = "Persisted name"
-	r, err := m.Save(ctx, 0, next)
+	r, err := m.Save(ctx, 0, next, false)
 	if err != nil || r.Revision != 1 {
 		t.Fatal(r, err)
 	}
-	if _, err = m.Save(ctx, 0, next); !errors.Is(err, operations.ErrRevision) {
+	if _, err = m.Save(ctx, 0, next, false); !errors.Is(err, operations.ErrRevision) {
 		t.Fatal("stale revision accepted", err)
 	}
 	if _, err = m.Rollback(ctx, 0); !errors.Is(err, operations.ErrRevision) {
@@ -95,7 +95,7 @@ func TestSettingsRevisionsPersistenceAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	next.Dashboard.Name = "Rejected"
-	if _, err = m.Save(ctx, 1, next); err != nil {
+	if _, err = m.Save(ctx, 1, next, false); err != nil {
 		t.Fatal(err)
 	}
 	if err = m.Reject(ctx, "port unavailable"); err != nil {
@@ -120,7 +120,7 @@ func TestSettingsValidationPreservesSavedValue(t *testing.T) {
 	}
 	invalid := operations.FromConfig(base)
 	invalid.Network.HTTPPort = base.Management.Port
-	if _, err = m.Save(ctx, 0, invalid); err == nil {
+	if _, err = m.Save(ctx, 0, invalid, false); err == nil {
 		t.Fatal("listener collision accepted")
 	}
 	r, err := s.ReadServerSettings(ctx)
@@ -129,7 +129,7 @@ func TestSettingsValidationPreservesSavedValue(t *testing.T) {
 	}
 	invalid = operations.FromConfig(base)
 	invalid.Dashboard.RefreshSeconds = 0
-	if _, err = m.Save(ctx, 0, invalid); err == nil {
+	if _, err = m.Save(ctx, 0, invalid, false); err == nil {
 		t.Fatal("invalid refresh accepted")
 	}
 }
@@ -176,7 +176,7 @@ func TestStartupRejectsStagedLimitBelowNewChannelCount(t *testing.T) {
 	}
 	candidate := operations.FromConfig(base)
 	candidate.Streaming.MaxStreams = 1
-	if _, err = m.Save(ctx, 0, candidate); err != nil {
+	if _, err = m.Save(ctx, 0, candidate, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"one", "two"} {
@@ -191,5 +191,53 @@ func TestStartupRejectsStagedLimitBelowNewChannelCount(t *testing.T) {
 	r, _ := s.ReadServerSettings(ctx)
 	if r.LastError == "" {
 		t.Fatal("rollback reason missing")
+	}
+}
+
+func TestNetworkPoliciesReloadWithoutSchemaOrChannelChanges(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "network.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	base := config.Default()
+	base.Streaming.Enabled = false
+	m, err := operations.NewSettings(ctx, base, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := stream.Channel{ID: "existing", Name: "Existing channel", Group: "Music", SourceType: "multicast", SourceAddress: "239.1.1.61", SourcePort: 1234, Interface: "eth0", Enabled: true}
+	if err := s.SaveChannel(ctx, channel, true); err != nil {
+		t.Fatal(err)
+	}
+	draft := operations.FromConfig(base)
+	draft.Streaming.AllowedClientNetworks = []string{"10.14.0.5, 10.14.0.5/32"}
+	draft.Streaming.AllowedMulticastGroups = []string{"239.1.1.61/24"}
+	if _, err := m.Save(ctx, 0, draft, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err = operations.NewSettings(ctx, base, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Startup(ctx, false)
+	if err != nil || len(cfg.Streaming.AllowedClientNetworks) != 1 || cfg.Streaming.AllowedClientNetworks[0] != "10.14.0.5" ||
+		len(cfg.Streaming.AllowedMulticastGroups) != 1 || cfg.Streaming.AllowedMulticastGroups[0] != "239.1.1.0/24" {
+		t.Fatalf("restored configuration: %+v %v", cfg.Streaming, err)
+	}
+	if channels, err := s.ListChannels(ctx); err != nil || len(channels) != 1 || channels[0] != channel {
+		t.Fatalf("channel metadata changed: %+v %v", channels, err)
+	}
+	if version, err := s.SchemaVersion(ctx); err != nil || version != 4 {
+		t.Fatalf("unexpected schema %d: %v", version, err)
 	}
 }

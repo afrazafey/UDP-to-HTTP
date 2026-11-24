@@ -7,4 +7,4 @@
 - [ ] Review package checksums, Go and frontend SBOMs, linked version, commit and UTC timestamp, and platform evidence.
 - [ ] Confirm package distribution and signing requirements and obtain approval before publishing or deployment.
 
-The Phase 4.2 artifacts are release candidates. A production deployment label describes the deployment environment. It is independent of the acceptance of a build.
+The Phase 4.3 artifacts are release candidates. A production deployment label describes the deployment environment. It is independent of the acceptance of a build.

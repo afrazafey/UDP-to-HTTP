@@ -68,26 +68,28 @@ sudo dpkg --purge udphttp-proxy
 test ! -e /etc/udphttp-proxy/config.yaml
 sudo test -f /var/lib/udphttp-proxy/udphttp-proxy.db
 
-# Upgrade directly from a representative Phase 4.1 source revision as well.
+# Upgrade directly from the previous release candidate as well.
 sudo mv /var/lib/udphttp-proxy "$work/schema4-state"
-previous=dbda0c0b8ab6272522847b436c19ad78a2091735
+previous=83f4008862e0696de425c9891f434bf229d26672
 mkdir "$work/previous"
 git archive "$previous" | tar -x -C "$work/previous"
 (
     cd "$work/previous"
     npm --prefix frontend ci
     npm --prefix frontend run build
-    python scripts/build-release.py --version 0.4.1-dev --targets "linux/$arch"
+    mkdir -p build
+    CGO_ENABLED=0 go build -trimpath -o build/udphttp-proxy ./cmd/udphttp-proxy
+    python scripts/build-deb.py "$arch" 0.4.2~rc.1 build/udphttp-proxy build
 )
-install_package "$work/previous/build/udphttp-proxy_0.4.1~dev_$arch.deb"
+install_package "$work/previous/build/udphttp-proxy_0.4.2~rc.1_$arch.deb"
 systemd-analyze --no-pager security udphttp-proxy.service
 sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py seed
 sudo systemctl restart udphttp-proxy
 sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py create 4
-sudo cp /etc/udphttp-proxy/config.yaml "$work/phase41.yaml"
+sudo cp /etc/udphttp-proxy/config.yaml "$work/previous.yaml"
 install_package "$package"
 [[ $(stat -c '%U:%G %a' /etc/udphttp-proxy/config.yaml) == 'root:udphttp-proxy 640' ]]
-sudo cmp "$work/phase41.yaml" /etc/udphttp-proxy/config.yaml
+sudo cmp "$work/previous.yaml" /etc/udphttp-proxy/config.yaml
 sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py check 4
 systemd-analyze --no-pager security udphttp-proxy.service
 sudo env GITHUB_ACTIONS=true python3 scripts/debian-upgrade-fixture.py multicast

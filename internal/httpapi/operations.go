@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -83,9 +84,10 @@ func (s *Service) systemInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 type settingsRequest struct {
-	Revision int64               `json:"revision"`
-	Settings operations.Settings `json:"settings"`
-	Confirm  bool                `json:"confirm"`
+	Revision            int64               `json:"revision"`
+	Settings            operations.Settings `json:"settings"`
+	Confirm             bool                `json:"confirm"`
+	ConfirmAllMulticast bool                `json:"confirm_all_multicast"`
 }
 
 func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
@@ -113,12 +115,12 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/api/v1/settings/validate" && r.Method == "POST" {
-		notes, err := m.Validate(r.Context(), body.Settings)
+		preview, notes, confirmAll, err := m.Preview(r.Context(), body.Settings)
 		if err != nil {
 			streamError(w, err)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"valid": true, "notes": notes, "preview": body.Settings, "management_binding_unchanged": true})
+		writeJSON(w, 200, map[string]any{"valid": true, "notes": notes, "preview": preview, "management_binding_unchanged": true, "requires_all_multicast_confirmation": confirmAll})
 		return
 	}
 	if !body.Confirm {
@@ -127,7 +129,7 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if r.Method == "PUT" && r.URL.Path == "/api/v1/settings" {
-		_, err = m.Save(r.Context(), body.Revision, body.Settings)
+		_, err = m.Save(r.Context(), body.Revision, body.Settings, body.ConfirmAllMulticast)
 	} else if r.Method == "POST" && r.URL.Path == "/api/v1/settings/rollback" {
 		_, err = m.Rollback(r.Context(), body.Revision)
 	} else {
@@ -145,13 +147,62 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.options.Logger.Info("settings saved", "component", "configuration", "operation", r.URL.Path, "restart", "server settings require process restart; management binding unchanged")
+	s.options.Logger.Info("settings saved", "component", "configuration", "operation", r.URL.Path)
 	view, err := m.View(r.Context())
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "Saved settings could not be read"})
 		return
 	}
 	writeJSON(w, 200, view)
+}
+
+func (s *Service) testNetworkPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeJSON(w, 405, map[string]string{"error": "Policy tests require POST"})
+		return
+	}
+	if s.options.Settings == nil {
+		unavailable(w)
+		return
+	}
+	var body struct {
+		Address string               `json:"address"`
+		Kind    string               `json:"kind"`
+		Draft   *operations.Settings `json:"settings"`
+	}
+	if err := decodeStrict(r, &body); err != nil {
+		streamError(w, err)
+		return
+	}
+	ip, err := netip.ParseAddr(strings.TrimSpace(body.Address))
+	if err != nil || ip.Zone() != "" {
+		streamError(w, errors.New("address must be a literal IP address without a zone"))
+		return
+	}
+	policy, err := s.options.Settings.Policy(body.Draft)
+	if err != nil {
+		streamError(w, err)
+		return
+	}
+	switch body.Kind {
+	case "playback":
+		writeJSON(w, 200, policy.Playback.Check(ip))
+	case "playlist":
+		allowed := policy.Playback.Check(ip)
+		if allowed.Allowed {
+			if !s.options.Config.Playlist.RemoteEnabled {
+				allowed.Allowed, allowed.Reason, allowed.Matched = false, "Remote playlists are disabled", ""
+			} else {
+				allowed = policy.Playlist.Check(ip)
+			}
+		}
+		writeJSON(w, 200, allowed)
+	case "multicast", "unicast":
+		writeJSON(w, 200, policy.Sources.Check(body.Kind, ip))
+	default:
+		streamError(w, errors.New("kind must be playback, playlist, multicast or unicast"))
+	}
 }
 func (s *Service) clientAction(w http.ResponseWriter, r *http.Request) {
 	if s.options.Streams == nil {

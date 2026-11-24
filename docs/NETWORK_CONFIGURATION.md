@@ -1,5 +1,48 @@
 # Network configuration
 
+## Network list formats
+
+IP-based lists accept scalar strings, YAML arrays, and block scalars. Entries
+can share one line with commas or appear on separate lines, with LF or CRLF.
+The parser trims whitespace, collapses duplicate hosts or ranges, and masks
+CIDRs to the network boundary. Validation errors identify the field and entry.
+The management API returns canonical arrays.
+
+```yaml
+streaming:
+  allowed_client_networks:
+    - 10.14.0.5/32
+    - 192.168.1.0/24, 192.168.10.0/24
+  allowed_multicast_groups: "239.1.1.0/24,239.255.20.0/24"
+  allowed_unicast_sources: |-
+    10.14.0.1,10.14.0.2
+    10.20.0.0/24
+  blocked_multicast_networks: [224.0.0.0/24]
+```
+
+Client lists accept IPv4 and IPv6 policy entries. Playback listeners currently
+bind to IPv4. IPv4-mapped IPv6 peers and entries are matched as IPv4. Scoped
+IPv6 addresses are rejected. Empty client and source allowlists deny all.
+Remote playlist clients must match both the playback and playlist lists.
+
+Multicast source and block entries must fit inside IPv4 `224.0.0.0/4`.
+The local-control range `224.0.0.0/24` always stays blocked. Configured
+multicast blocks override every allow, including `224.0.0.0/4`. Use the
+smallest ranges that serve your channels. Adding the allow-all range in the
+dashboard requires confirmation. Broad unicast ranges still enforce existing
+sender checks and explicit loopback permission.
+
+Playback client and source changes apply live. Excluded streams and clients
+disconnect and their channel definitions stay in SQLite. Listener address
+changes still require a restart. Settings can test an address against the
+active or unsaved policy.
+
+Bind lists require exact local IPv4 addresses. The explicit wildcard
+`0.0.0.0` must stand alone. Trusted proxy lists require exact IPv4 loopback
+addresses. Trusted origins use separate HTTP(S) origin validation.
+
+## Existing deployment reference
+
 The following is one deployment the user verified before Phase 4. Replace every address/interface for other networks. It is not an application default or an independent Phase 4 acceptance result.
 
 ```text

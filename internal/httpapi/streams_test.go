@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 )
 
@@ -143,12 +144,66 @@ func TestPlaybackPolicyAndPaths(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatal("CIDR bypass")
 	}
-	s.options.Config.Streaming.AllowedClientNetworks = nil
+	s.options.Streams.UpdateAccess(s.options.Streams.Sources(), netpolicy.Prefixes{})
 	w = httptest.NewRecorder()
 	s.StreamHandler().ServeHTTP(w, req("GET", "/live/live.ts"))
 	if w.Code != 403 {
 		t.Fatal("empty allowlist must deny")
 	}
+}
+
+type multicastFixture struct{ channel stream.Channel }
+
+func (r multicastFixture) ListChannels(context.Context) ([]stream.Channel, error) {
+	return []stream.Channel{r.channel}, nil
+}
+func (multicastFixture) SaveChannel(context.Context, stream.Channel, bool) error { return nil }
+func (multicastFixture) DeleteChannel(context.Context, string) error             { return nil }
+
+func TestLivePolicyAppliesToBothPlaybackListenersAndLegacyPath(t *testing.T) {
+	cfg := config.Default()
+	cfg.Streaming.AllowedMulticastGroups = []string{"239.0.0.0/8"}
+	cfg.Streaming.AllowedClientNetworks = []string{"127.0.0.1"}
+	cfg.Playlist.AllowedClientNetworks = []string{"127.0.0.1"}
+	cfg.Playlist.AdvertisedHost = "127.0.0.1"
+	cfg.Playlist.RemoteEnabled = true
+	channel := stream.Channel{ID: "existing", Name: "Existing", SourceType: "multicast", SourceAddress: "239.1.1.61", SourcePort: 1234, Interface: "eth0", Enabled: true}
+	manager, err := stream.NewManager(t.Context(), stream.Options{Policy: cfg.StreamPolicy(), Repository: multicastFixture{channel}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	service := New(Options{Config: cfg, Streams: manager})
+	primary := httptest.NewServer(service.StreamHandler())
+	defer primary.Close()
+	secondary := httptest.NewServer(service.StreamHandler())
+	defer secondary.Close()
+	expect := func(base, path string, status int) {
+		t.Helper()
+		response, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != status {
+			t.Errorf("%s%s: want %d, got %d", base, path, status, response.StatusCode)
+		}
+	}
+	expect(primary.URL, "/playlist.m3u", 200)
+	expect(secondary.URL, "/playlist.m3u", 200)
+	cfg.Streaming.BlockedMulticastNetworks = []string{"239.1.0.0/16"}
+	policies, err := cfg.NormalizeNetwork()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.UpdateAccess(policies.Sources, policies.Playback)
+	for _, server := range []*httptest.Server{primary, secondary} {
+		expect(server.URL, "/live/existing.ts", 403)
+		expect(server.URL, "/udp/239.1.1.61:1234", 403)
+	}
+	manager.UpdateAccess(policies.Sources, netpolicy.Prefixes{})
+	expect(primary.URL, "/playlist.m3u", 403)
+	expect(secondary.URL, "/playlist.m3u", 403)
 }
 func TestStartupInactivityReturns503(t *testing.T) {
 	s, m, c := streamingService(t)

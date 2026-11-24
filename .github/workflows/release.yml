@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Candidate version (for example 0.4.2-rc.1)
+        description: Candidate version (for example 0.4.3-rc.1)
         required: true
-        default: 0.4.2-rc.1
+        default: 0.4.3-rc.1
       create_draft:
         description: Approve creating a draft prerelease after successful validation
         type: boolean
@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: phase42-candidate
+          name: release-candidate
           path: build/candidate
       - name: Create approved draft using the tested package bytes
         shell: bash
@@ -42,4 +42,4 @@ jobs:
           cd build/candidate
           sha256sum --strict --check SHA256SUMS
           mapfile -t files < <(cut -c67- SHA256SUMS)
-          gh release create "v$VERSION" "${files[@]}" SHA256SUMS --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP Proxy $VERSION" --notes "Developed by Afraaz (https://afraaz.xyz). Review docs/PHASE4_2_REPORT.md and release gates before stable promotion."
+          gh release create "v$VERSION" "${files[@]}" SHA256SUMS --target "$SOURCE_SHA" --draft --prerelease --title "UDPHTTP Proxy $VERSION" --notes "Developed by Afraaz (https://afraaz.xyz). Review docs/PHASE4_3_REPORT.md and release gates before stable promotion."

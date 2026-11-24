@@ -52,6 +52,9 @@ function setup(
         if (request?.method && options.saveFail) {
           result = { error: "Settings disk write failed" };
           code = 500;
+        } else if (request?.method === "PUT") {
+          data.settings.settings = JSON.parse(String(request.body)).settings;
+          data.settings.revision++;
         }
         break;
       case "/api/v1/settings/validate": {
@@ -62,9 +65,15 @@ function setup(
         ) {
           result = { error: "Streaming HTTP ports must differ" };
           code = 400;
-        } else result = { notes: ["Point-in-time check passed"] };
+        } else result = {
+          notes: ["Point-in-time check passed"], preview: body.settings,
+          requires_all_multicast_confirmation: body.settings.streaming.allowed_multicast_groups.includes("224.0.0.0/4"),
+        };
         break;
       }
+      case "/api/v1/settings/policy-test":
+        result = { allowed: false, reason: "multicast group is blocked", matched: "239.1.0.0/16" };
+        break;
       case "/api/v1/csrf":
         result = { token: "test-csrf" };
         break;
@@ -117,6 +126,48 @@ afterEach(() => {
   window.location.hash = "";
 });
 describe("Phase 3 dashboard", () => {
+  it("reviews and confirms multicast allow-all and reloads the saved policy", async () => {
+    const { fetch } = setup();
+    window.location.hash = "#/settings";
+    const app = renderApp();
+    fireEvent.click(await screen.findByRole("tab", { name: "Security" }));
+    const allow = screen.getByRole("checkbox", { name: /Allow all IPv4/ });
+    fireEvent.click(allow);
+    expect(screen.getByRole("button", { name: "Remove 224.0.0.0/4" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Reset draft" }));
+    expect(allow).not.toBeChecked();
+    fireEvent.click(allow);
+    fireEvent.click(screen.getByRole("button", { name: /Validate & review/ }));
+    let review = within(await screen.findByRole("dialog"));
+    expect(review.getByRole("button", { name: "Confirm save" })).toBeDisabled();
+    fireEvent.click(review.getByRole("button", { name: "Keep editing" }));
+    expect(allow).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /Validate & review/ }));
+    review = within(await screen.findByRole("dialog"));
+    fireEvent.click(review.getByRole("checkbox", { name: /I confirm/ }));
+    fireEvent.click(review.getByRole("button", { name: "Confirm save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const save = fetch.mock.calls.find(([path, request]) => path === "/api/v1/settings" && request?.method === "PUT");
+    expect(JSON.parse(String(save?.[1]?.body))).toMatchObject({ confirm_all_multicast: true });
+    app.unmount();
+    renderApp();
+    fireEvent.click(await screen.findByRole("tab", { name: "Security" }));
+    expect(screen.getByRole("checkbox", { name: /Allow all IPv4/ })).toBeChecked();
+  });
+
+  it("shows the backend result for a draft address check", async () => {
+    const { fetch } = setup();
+    window.location.hash = "#/settings";
+    renderApp();
+    fireEvent.click(await screen.findByRole("tab", { name: "Security" }));
+    fireEvent.change(screen.getByLabelText("IP address"), { target: { value: "239.1.1.61" } });
+    fireEvent.change(screen.getByLabelText("Access list"), { target: { value: "multicast" } });
+    fireEvent.change(screen.getByLabelText("Policy to evaluate"), { target: { value: "draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test address" }));
+    expect(await screen.findByText("239.1.0.0/16")).toBeVisible();
+    const check = fetch.mock.calls.find(([path]) => path === "/api/v1/settings/policy-test");
+    expect(JSON.parse(String(check?.[1]?.body))).toMatchObject({ address: "239.1.1.61", kind: "multicast", settings: { streaming: {} } });
+  });
   it("keeps deployment branding separate from release maturity and treats channel markup as text", async () => {
     const { data } = setup();
     data.system.environment = "Production";

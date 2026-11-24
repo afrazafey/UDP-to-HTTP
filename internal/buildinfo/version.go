@@ -14,7 +14,7 @@ const (
 	Website   = "https://afraaz.xyz"
 )
 
-var Version = "0.4.2-rc.1"
+var Version = "0.4.3-rc.1"
 var Commit = ""
 var Date = ""
 

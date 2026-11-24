@@ -157,11 +157,12 @@ export function NetworkPage({
             </p>
           </div>
           <div className="op-form-actions">
+            {editor.dirty && <Button type="button" onClick={editor.reset} disabled={editor.busy}>Reset draft</Button>}
             <Button
               type="submit"
               className="primary"
               disabled={
-                editor.busy || editor.revision !== data.settings.revision
+                editor.busy || editor.revision < data.settings.revision
               }
             >
               {editor.busy ? "Validating…" : "Validate & preview configuration"}

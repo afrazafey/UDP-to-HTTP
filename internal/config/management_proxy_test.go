@@ -39,7 +39,7 @@ func TestManagementProxyConfiguration(t *testing.T) {
 		"CIDR":              {TrustedProxies: []string{"127.0.0.0/8"}},
 		"hostname peer":     {TrustedProxies: []string{"localhost"}},
 		"IPv6 peer":         {TrustedProxies: []string{"::1"}},
-		"duplicate peer":    {TrustedProxies: []string{"127.0.0.1", "127.0.0.1"}},
+		"mapped peer":       {TrustedProxies: []string{"::ffff:127.0.0.1"}},
 		"duplicate origin":  {TrustedOrigins: []string{"http://192.168.10.103", "http://192.168.10.103"}},
 		"wildcard disabled": {TrustedOrigins: []string{"*"}},
 	} {

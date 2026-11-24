@@ -102,12 +102,14 @@ func TestPlaylistExposureAndDiagnosticsRestrictions(t *testing.T) {
 	}
 	s.options.Config.Playlist.RemoteEnabled = true
 	s.options.Config.Playlist.AllowedClientNetworks = []string{"192.168.10.0/24"}
+	s = New(s.options)
 	w = httptest.NewRecorder()
 	s.StreamHandler().ServeHTTP(w, r)
 	if w.Code != 403 {
 		t.Fatal("playlist bypassed independent CIDR", w.Code)
 	}
 	s.options.Config.Playlist.AllowedClientNetworks = []string{"127.0.0.0/8"}
+	s = New(s.options)
 	w = httptest.NewRecorder()
 	s.StreamHandler().ServeHTTP(w, r)
 	if w.Code != 200 {

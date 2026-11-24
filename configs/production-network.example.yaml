@@ -1,0 +1,26 @@
+# Example for AMVVEL1SUDPHTTP. Merge selectively into the active configuration.
+network:
+  multicast_interface: enp0s31f6
+  http_interface: 10.14.0.23
+  http_port: 7781
+  secondary_http_port: 7782
+
+streaming:
+  enabled: true
+  allowed_client_networks:
+    - 10.14.0.5 # Use 10.14.0.5/32 for an explicit Jellyfin-only client list.
+    - 192.168.1.0/24,192.168.10.0/24 # Include only for networks that need playback.
+  allowed_multicast_groups:
+    - 239.0.0.0/8 # Select the narrowest ranges that serve your channels.
+  allowed_unicast_sources:
+    - 10.14.0.1,10.14.0.2
+  blocked_multicast_networks:
+    - 224.0.0.0/24
+
+playlist:
+  advertised_host: 10.14.0.23
+  remote_enabled: false
+
+management:
+  host: 127.0.0.1
+  port: 8080

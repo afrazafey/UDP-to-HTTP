@@ -56,7 +56,7 @@ func TestInvalidConfig(t *testing.T) {
 		"small buffer":                func(c *Config) { c.Streaming.UDPReceiveBuffer = 1 },
 		"large buffer":                func(c *Config) { c.Streaming.StreamBuffer = 1 << 30 },
 		"no clients":                  func(c *Config) { c.Streaming.MaxClients = 0 },
-		"bad client CIDR":             func(c *Config) { c.Streaming.AllowedClientNetworks = []string{"192.168.1.1/24"} },
+		"bad client CIDR":             func(c *Config) { c.Streaming.AllowedClientNetworks = []string{"192.168.1.1/33"} },
 		"group hostname":              func(c *Config) { c.Streaming.AllowedMulticastGroups = []string{"example.com"} },
 		"unicast group":               func(c *Config) { c.Streaming.AllowedUnicastSources = []string{"239.1.1.1"} },
 		"unicast loopback":            func(c *Config) { c.Streaming.AllowedUnicastSources = []string{"127.0.0.1"} },
@@ -105,6 +105,9 @@ func TestExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := Load("../../configs/phase2-local.yaml", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load("../../configs/production-network.example.yaml", nil); err != nil {
 		t.Fatal(err)
 	}
 }

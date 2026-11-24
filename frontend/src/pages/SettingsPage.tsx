@@ -1,5 +1,7 @@
 import { useId, useState } from "react";
 import { FileText, Globe, ListMusic, Radio, Settings2, ShieldCheck } from "lucide-react";
+import { allMulticast, analyzeNetworkList, NetworkList, splitNetworkList, type ListKind } from "../components/network/NetworkList";
+import { PolicyTest } from "../components/network/PolicyTest";
 import type { OperationsData } from "../types/operations";
 import { Button, CopyButton, Definition, Field, Panel } from "../components/ui";
 import {
@@ -62,19 +64,14 @@ export function SettingsPage({
       | "allowed_unicast_sources"
       | "blocked_multicast_networks",
     help: string,
+    example: string,
+    kind: ListKind,
   ) => (
-    <Field label={label} help={help}>
-      <input
-        value={d.streaming[key].join(", ")}
-        onChange={(event) =>
-          updateStream(
-            key,
-            event.target.value.split(",").map((s) => s.trim()),
-          )
-        }
-      />
-    </Field>
+    <NetworkList label={label} help={help} example={example} kind={kind}
+      value={d.streaming[key]} loopback={d.streaming.allow_loopback_unicast}
+      onChange={(entries) => updateStream(key, entries)} />
   );
+  const allowAll = analyzeNetworkList(d.streaming.allowed_multicast_groups, "multicast").entries.has(allMulticast);
   return (
     <>
       {e.status}
@@ -142,6 +139,12 @@ export function SettingsPage({
                       data.settings.read_only.remote_playlist_access ??
                       "Unavailable",
                     ),
+                  ],
+                  [
+                    "Remote playlist client networks",
+                    Array.isArray(data.settings.read_only.playlist_allowed_client_networks)
+                      ? data.settings.read_only.playlist_allowed_client_networks.join(", ") || "Empty"
+                      : "Unavailable",
                   ],
                   [
                     "Apply changes",
@@ -365,24 +368,32 @@ export function SettingsPage({
                   <>
                     <div className="op-form-grid">
                       {list(
-                        "Allowed playback client CIDRs",
+                        "Allowed playback clients",
                         "allowed_client_networks",
-                        "Empty denies all. Actual peer IP only; canonical IPv4 CIDRs.",
+                        "Empty denies all playback clients. Matches the actual peer IP.",
+                        "10.14.0.5\n192.168.10.0/24",
+                        "client",
                       )}
                       {list(
                         "Allowed multicast groups",
                         "allowed_multicast_groups",
-                        "Exact literal group IPv4 addresses.",
+                        "IPv4 groups and ranges within 224.0.0.0/4.",
+                        "239.1.1.61\n239.255.20.0/24",
+                        "multicast",
                       )}
                       {list(
-                        "Allowed unicast sender IPs",
+                        "Allowed unicast senders",
                         "allowed_unicast_sources",
-                        "Exact IPv4 sender addresses, not pull URLs.",
+                        "IPv4 sender addresses or networks.",
+                        "10.14.0.1, 10.20.0.0/24",
+                        "unicast",
                       )}
                       {list(
                         "Blocked multicast networks",
                         "blocked_multicast_networks",
-                        "Canonical multicast CIDRs; reserved control range is blocked by default.",
+                        "Blocked ranges override allowed ranges. The local-control range is always blocked.",
+                        "224.0.0.0/24",
+                        "blocked",
                       )}
                       <Field label="Explicit loopback unicast permission">
                         <select
@@ -396,11 +407,25 @@ export function SettingsPage({
                         >
                           <option value="false">Denied</option>
                           <option value="true">
-                            Allowed only for exact allowlisted senders
+                            Allowed for matching senders
                           </option>
                         </select>
                       </Field>
                     </div>
+                    <label className={allowAll ? "op-policy-warning" : "op-policy-checkbox"}>
+                      <input type="checkbox" checked={allowAll} onChange={(event) => {
+                        const entries = splitNetworkList(d.streaming.allowed_multicast_groups)
+                          .filter((entry) => !analyzeNetworkList([entry], "multicast").entries.has(allMulticast));
+                        updateStream("allowed_multicast_groups", event.target.checked ? [...entries, allMulticast] : entries);
+                      }} />
+                      <span>
+                        <strong>Allow all IPv4 multicast groups</strong>
+                        <small>{allowAll
+                          ? "Any group outside reserved and blocked ranges can be selected."
+                          : "Uses 224.0.0.0/4. Blocked ranges still take precedence."}</small>
+                      </span>
+                    </label>
+                    <PolicyTest key={e.revision} draft={d} />
                     <Definition
                       items={[
                         [
@@ -509,10 +534,11 @@ export function SettingsPage({
                     label="Copy recovery command"
                     value="UDPHTTP_IGNORE_SAVED_SETTINGS=1 udphttp-proxy serve --config /etc/udphttp-proxy/config.yaml"
                   />
+                  {e.dirty && <Button type="button" disabled={e.busy} onClick={e.reset}>Reset draft</Button>}
                   <Button
                     type="submit"
                     className="primary"
-                    disabled={e.busy || e.revision !== data.settings.revision}
+                    disabled={e.busy || e.revision < data.settings.revision}
                   >
                     {e.busy ? "Validating…" : "Validate & review changes"}
                   </Button>

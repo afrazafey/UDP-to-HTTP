@@ -38,7 +38,8 @@ def build(arch,version,binary,output_directory=None):
     epoch=int(os.environ.get('SOURCE_DATE_EPOCH','0'))
     data={'usr/bin/udphttp-proxy':(Path(binary).read_bytes(),0o755),'etc/udphttp-proxy/config.yaml':((root/'deploy/config.yaml').read_bytes(),0o644),'usr/lib/systemd/system/udphttp-proxy.service':((root/'deploy/udphttp-proxy.service').read_bytes(),0o644)}
     documentation = ('README.md', 'CHANGELOG.md', 'SECURITY.md', 'docs/PHASE4_REPORT.md',
-                     'docs/PHASE4_2_REPORT.md', 'docs/SECURITY_HARDENING.md', 'docs/INSTALL_LINUX.md',
+                     'docs/PHASE4_2_REPORT.md', 'docs/PHASE4_3_REPORT.md', 'docs/SECURITY_HARDENING.md', 'docs/INSTALL_LINUX.md',
+                     'docs/NETWORK_CONFIGURATION.md', 'configs/production-network.example.yaml',
                      'docs/UPGRADE.md', 'docs/PRODUCTION_DEPLOYMENT.md', 'deploy/NGINX.md',
                      'deploy/nginx-management.conf')
     for name in documentation:

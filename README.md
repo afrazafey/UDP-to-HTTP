@@ -6,7 +6,7 @@ A lightweight, security-focused and high-performance UDP-to-HTTP IPTV streaming 
 
 UDPHTTP Proxy converts authorized IPv4 multicast or unicast **MPEG-TS over UDP** into HTTP streams for VLC, Android TV and other IPTV players. Multiple viewers share one receiver per configured source identity. An embedded React/TypeScript dashboard manages channels, health, imports, playlists and diagnostics; SQLite persists configuration and bounded operational events.
 
-**Phase 4.2 / 0.4.2-rc.1 validation candidate.** The verified TRACE URBAN deployment is the IPTV regression reference. Native Debian and Windows service lifecycle results remain release gates. [Phase 4.2 validation report](docs/PHASE4_2_REPORT.md)
+**Phase 4.3 / 0.4.3-rc.1 validation candidate.** The verified TRACE URBAN deployment is the IPTV regression reference. Native Debian and Windows service lifecycle results remain release gates. [Phase 4.3 validation report](docs/PHASE4_3_REPORT.md)
 
 ![Production-branded dashboard at 1360px in Edge with a live synthetic Windows stream](docs/screenshots/phase42-overview-1360.png)
 
@@ -14,7 +14,7 @@ Edge captures of the same isolated daemon show the tablet and mobile layouts and
 
 ## 1. Overview
 
-- Multicast/unicast UDP reception with explicit interfaces, source allowlists and client CIDRs.
+- Multicast/unicast UDP reception with explicit interfaces, source CIDRs and client allowlists. [Policy formats and examples](docs/NETWORK_CONFIGURATION.md)
 - Bounded shared fan-out, slow-client isolation, automatic socket/interface recovery with jittered retry.
 - Separate UDP datagram and MPEG-TS packet/continuity/synchronization observations.
 - Channel metadata, transactional M3U import, sorted/filterable playlist export and opt-in restricted remote playlists.
@@ -56,7 +56,7 @@ Download an approved candidate's actual files and `SHA256SUMS`, verify them, the
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
-sudo apt install './udphttp-proxy_0.4.2~rc.1_amd64.deb'
+sudo apt install './udphttp-proxy_0.4.3~rc.1_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 sudo systemctl status udphttp-proxy --no-pager
 curl --fail http://127.0.0.1:8080/health
@@ -71,13 +71,13 @@ This task creates artifacts locally, not a published tag. After an approved rele
 ```sh
 sudo apt update
 sudo apt install -y curl ca-certificates
-VERSION=0.4.2-rc.1
-TAG=v0.4.2-rc.1 # Replace with the approved tag that actually contains these artifacts.
+VERSION=0.4.3-rc.1
+TAG=v0.4.3-rc.1 # Replace with the approved tag that actually contains these artifacts.
 BASE="https://github.com/afrazafey/UDP-to-HTTP/releases/download/$TAG"
 curl --fail --location --output SHA256SUMS "$BASE/SHA256SUMS"
-curl --fail --location --output 'udphttp-proxy_0.4.2~rc.1_amd64.deb' "$BASE/udphttp-proxy_0.4.2~rc.1_amd64.deb"
+curl --fail --location --output 'udphttp-proxy_0.4.3~rc.1_amd64.deb' "$BASE/udphttp-proxy_0.4.3~rc.1_amd64.deb"
 sha256sum --check --ignore-missing SHA256SUMS
-sudo apt install './udphttp-proxy_0.4.2~rc.1_amd64.deb'
+sudo apt install './udphttp-proxy_0.4.3~rc.1_amd64.deb'
 sudo systemctl enable --now udphttp-proxy
 ```
 
@@ -89,7 +89,7 @@ Use the same verified `.deb` installation and systemd commands as Ubuntu. Select
 
 ## 7. Windows installation
 
-Verify `udphttp-proxy_0.4.2-rc.1_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
+Verify `udphttp-proxy_0.4.3-rc.1_windows_amd64.zip` against the SHA-256 manifest, extract it, then:
 
 ```powershell
 .\udphttp-proxy.exe interfaces
@@ -122,8 +122,8 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python3 scripts/build-release.py --version 0.4.2-rc.1
-dpkg-deb --info './build/udphttp-proxy_0.4.2~rc.1_amd64.deb'
+python3 scripts/build-release.py --version 0.4.3-rc.1
+dpkg-deb --info './build/udphttp-proxy_0.4.3~rc.1_amd64.deb'
 ```
 
 `scripts/build-deb.sh amd64 VERSION BINARY` remains a wrapper around the portable Debian builder. Linux CI separately inspects, installs, upgrades, removes and purges packages. Set `SOURCE_DATE_EPOCH` for deterministic archive timestamps. Binaries link version/actual source SHA/build time; dirty checkouts are labeled. A source build reports its VCS commit when present and leaves its build time unknown. Official candidates link the actual UTC build time.
@@ -141,7 +141,7 @@ go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-python scripts/build-release.py --version 0.4.2-rc.1
+python scripts/build-release.py --version 0.4.3-rc.1
 & .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 
@@ -181,11 +181,21 @@ Management base: `http://127.0.0.1:8080`. GETs inherit loopback/Host/origin guar
 | DELETE | `/api/v1/clients/{id}` | Disconnect a subscription |
 | GET | `/api/v1/dashboard`, `/api/v1/metrics`, `/api/v1/system` | Operational summary/resources/history/security |
 | GET, PUT | `/api/v1/settings` | Desired/active settings/revisions and confirmed save |
-| POST | `/api/v1/settings/validate`, `/rollback` | Preview/confirmed accepted-state rollback |
+| POST | `/api/v1/settings/validate`, `/api/v1/settings/rollback` | Canonical preview or confirmed accepted-state rollback |
+| POST | `/api/v1/settings/policy-test` | Evaluate a literal IP against active or draft policy |
 | GET | `/api/v1/logs`, `/api/v1/logs/export` | Filtered bounded sanitized events/NDJSON |
 | GET | `/api/v1/playlist/config`, `/api/v1/playlist.m3u` | Read-only advertising policy/M3U export |
 | POST | `/api/v1/import/preview`, `/commit` | Bounded preview and confirmed atomic import |
 | GET, POST | `/api/v1/diagnostics` | Current observations/fixed safe diagnostic actions |
+
+Network list fields in settings accept arrays or strings with comma and newline
+separators. Settings responses return canonical arrays. A save that newly
+allows all IPv4 multicast groups requires both `confirm` and
+`confirm_all_multicast`. Call `POST /api/v1/settings/policy-test` with
+`{"kind":"multicast","address":"239.1.1.61"}` to test the active policy. Include
+a `settings` object to evaluate a draft. The response contains `allowed`,
+`reason`, and `matched` when an entry decided the result.
+
 
 Playback routes are GET `/live/{id}.ts`, `/udp/{multicast-IP}:{port}`, and explicitly enabled `/playlist.m3u`; playback listeners expose no management API. Group routes require an enabled unambiguous configured source.
 

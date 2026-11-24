@@ -77,6 +77,7 @@ func (s *Service) channelImport(w http.ResponseWriter, r *http.Request) {
 		}
 		seen := map[string]bool{}
 		cfg := s.options.Config
+		sources := s.options.Streams.Sources()
 		for i := range entries {
 			row := &entries[i]
 			row.Channel = row.Channel.Defaults(cfg.Streaming.MaxClients, cfg.Streaming.ClientBufferBytes, cfg.Streaming.UDPReceiveBuffer)
@@ -111,7 +112,7 @@ func (s *Service) channelImport(w http.ResponseWriter, r *http.Request) {
 				}
 				row.Channel = c
 			}
-			if err := row.Channel.Validate(cfg.StreamPolicy()); err != nil {
+			if err := row.Channel.ValidateWithSources(sources); err != nil {
 				row.Error = err.Error()
 			}
 			if row.Error == "" {
@@ -208,7 +209,7 @@ func (s *Service) diagnostics(w http.ResponseWriter, r *http.Request) {
 	groups := []string{}
 	if s.options.Streams != nil {
 		for _, v := range s.options.Streams.List() {
-			valid := v.Channel.Validate(s.options.Config.StreamPolicy()) == nil
+			valid := v.Channel.ValidateWithSources(s.options.Streams.Sources()) == nil
 			if v.Channel.SourceType == "multicast" {
 				groups = append(groups, v.Channel.SourceAddress)
 			}
@@ -284,7 +285,7 @@ func (s *Service) diagnosticAction(w http.ResponseWriter, r *http.Request, actio
 		streamError(w, err)
 		return
 	}
-	valid := v.Channel.Validate(s.options.Config.StreamPolicy())
+	valid := v.Channel.ValidateWithSources(s.options.Streams.Sources())
 	selection := interfaceError(v.Channel)
 	writeJSON(w, 200, map[string]any{"channel_id": id, "configuration_valid": valid == nil, "interface_error": selection, "source_error": errorText(valid), "selected_interface": v.Channel.Interface, "route_selection": "explicit local interface only; no arbitrary destinations probed", "multicast_eligible": valid == nil && selection == nil && v.Channel.SourceType == "multicast", "socket_bound": v.SocketBound, "membership_joined": v.MembershipJoined, "last_datagram_at": v.LastDatagramAt, "last_valid_ts_at": v.LastPacketAt, "http_payload_bytes_delivered": v.Counters.OutputBytes})
 }

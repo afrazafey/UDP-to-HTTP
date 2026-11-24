@@ -19,6 +19,7 @@ import (
 	"github.com/udphttp-proxy/udphttp-proxy/internal/buildinfo"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/events"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/operations"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
@@ -44,13 +45,15 @@ type Options struct {
 	Listeners   []ListenerStatus
 }
 type Service struct {
-	options     Options
-	started     time.Time
-	handler     http.Handler
-	csrf        string
-	writeMu     sync.Mutex
-	writeWindow time.Time
-	writes      int
+	options         Options
+	started         time.Time
+	handler         http.Handler
+	csrf            string
+	playlistClients netpolicy.Prefixes
+	playbackClients netpolicy.Prefixes
+	writeMu         sync.Mutex
+	writeWindow     time.Time
+	writes          int
 }
 type ListenerStatus struct {
 	Kind    string `json:"kind"`
@@ -67,6 +70,17 @@ func New(o Options) *Service {
 		o.Discover = network.Discover
 	}
 	s := &Service{options: o, started: buildinfo.StartedAt, csrf: rand.Text()}
+	policies, err := o.Config.NormalizeNetwork()
+	if err == nil {
+		s.options.Config = o.Config
+		s.playlistClients, s.playbackClients = policies.Playlist, policies.Playback
+	}
+	if o.Streams != nil {
+		o.Streams.UpdateAccess(policies.Sources, policies.Playback)
+		if o.Settings != nil {
+			o.Settings.LiveAccess = o.Streams.UpdateAccess
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/playlist.m3u", s.exportPlaylist)
 	mux.HandleFunc("/api/v1/playlist/config", s.playlistConfiguration)
@@ -89,6 +103,7 @@ func New(o Options) *Service {
 	mux.HandleFunc("/api/v1/settings", s.settings)
 	mux.HandleFunc("/api/v1/settings/validate", s.settings)
 	mux.HandleFunc("/api/v1/settings/rollback", s.settings)
+	mux.HandleFunc("/api/v1/settings/policy-test", s.testNetworkPolicy)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "API endpoint not found"})
 	})

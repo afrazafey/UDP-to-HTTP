@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 )
 
 var (
-	ErrNotFound = errors.New("channel not found")
-	ErrConflict = errors.New("channel ID, source, or UDP bind conflicts with an existing channel")
-	ErrLimit    = errors.New("stream or client limit reached")
-	ErrDisabled = errors.New("channel is disabled or manually stopped")
-	ErrClosed   = errors.New("stream subscription closed")
-	ErrStorage  = errors.New("channel persistence failed")
+	ErrNotFound     = errors.New("channel not found")
+	ErrConflict     = errors.New("channel ID, source, or UDP bind conflicts with an existing channel")
+	ErrLimit        = errors.New("stream or client limit reached")
+	ErrDisabled     = errors.New("channel is disabled or manually stopped")
+	ErrClosed       = errors.New("stream subscription closed")
+	ErrStorage      = errors.New("channel persistence failed")
+	ErrClientDenied = errors.New("playback client IP is not allowed")
+	ErrSourceDenied = errors.New("channel source is denied by the current network policy")
 )
 
 type Repository interface {
@@ -48,6 +53,7 @@ type entry struct {
 	channel                                        Channel
 	state                                          string
 	blocked                                        bool
+	policyBlocked                                  bool
 	worker                                         *worker
 	clients                                        map[uint64]*Subscription
 	queued                                         int
@@ -66,6 +72,8 @@ type Manager struct {
 	ctx                       context.Context
 	cancel                    context.CancelFunc
 	options                   Options
+	sources                   netpolicy.Sources
+	playbackClients           netpolicy.Prefixes
 	entries                   map[string]*entry
 	receivers                 map[string]*worker
 	closed                    bool
@@ -74,6 +82,10 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, o Options) (*Manager, error) {
+	sources, err := o.Policy.Compile()
+	if err != nil {
+		return nil, err
+	}
 	if o.Recovery == nil {
 		p := DefaultRecovery()
 		o.Recovery = &p
@@ -111,7 +123,7 @@ func NewManager(ctx context.Context, o Options) (*Manager, error) {
 		o.InactivityTimeout = 10 * time.Second
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	m := &Manager{ctx: ctx, cancel: cancel, options: o, entries: map[string]*entry{}, receivers: map[string]*worker{}}
+	m := &Manager{ctx: ctx, cancel: cancel, options: o, sources: sources, entries: map[string]*entry{}, receivers: map[string]*worker{}}
 	if o.Repository != nil {
 		channels, err := o.Repository.ListChannels(ctx)
 		if err != nil {
@@ -127,7 +139,7 @@ func NewManager(ctx context.Context, o Options) (*Manager, error) {
 			e := newEntry(c)
 			m.entries[c.ID] = e
 			if _, err = m.validate(c); err != nil {
-				e.blocked = true
+				e.policyBlocked = true
 				e.state = "error"
 				m.errorLocked(e, "policy", err)
 			}
@@ -145,7 +157,7 @@ func NewManager(ctx context.Context, o Options) (*Manager, error) {
 		}
 		m.mu.Lock()
 		for _, e := range m.entries {
-			if e.channel.Enabled && !e.blocked && e.channel.Startup == "always" && !o.Disabled {
+			if e.channel.Enabled && !e.policyBlocked && e.channel.Startup == "always" && !o.Disabled {
 				m.startLocked(e, true)
 			}
 		}
@@ -162,7 +174,7 @@ func newEntry(c Channel) *entry {
 }
 func (m *Manager) validate(c Channel) (Channel, error) {
 	c = c.Defaults(m.options.MaxClients, m.options.ClientBufferBytes, m.options.UDPReceiveBuffer)
-	if err := c.Validate(m.options.Policy); err != nil {
+	if err := c.ValidateWithSources(m.sources); err != nil {
 		return c, err
 	}
 	if c.MaxClients > m.options.MaxClients {
@@ -292,6 +304,7 @@ func (m *Manager) Action(id, action string) error {
 			m.mu.Lock()
 		}
 		e.blocked = false
+		e.policyBlocked = false
 		m.startLocked(e, true)
 		m.mu.Unlock()
 	}
@@ -373,7 +386,9 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 			e.membershipJoined = false
 			e.worker = nil
 			e.state = "stopped"
-			if !e.channel.Enabled {
+			if e.policyBlocked {
+				e.state = "error"
+			} else if !e.channel.Enabled {
 				e.state = "disabled"
 			}
 			for _, sub := range e.clients {
@@ -388,6 +403,10 @@ func (m *Manager) run(ctx context.Context, e *entry, w *worker) {
 	attempts := 0
 	for ctx.Err() == nil {
 		m.mu.Lock()
+		if e.policyBlocked || !e.channel.SourceDecision(m.sources).Allowed {
+			m.mu.Unlock()
+			return
+		}
 		idle := activeClients(e) == 0 && !w.pinned && time.Since(e.idleSince) >= time.Duration(e.channel.IdleTimeoutSeconds)*time.Second
 		if idle {
 			w.stopping = true
@@ -514,6 +533,10 @@ func (m *Manager) receive(ctx context.Context, e *entry, w *worker, r *udpReceiv
 			data, stats = framer.Push(buffer[:n])
 		}
 		m.mu.Lock()
+		if e.policyBlocked {
+			m.mu.Unlock()
+			return context.Canceled
+		}
 		if err == nil {
 			if !accepted {
 				e.counters.RejectedDatagrams++
@@ -610,10 +633,24 @@ type Subscription struct {
 }
 
 func (m *Manager) Subscribe(id, remoteIP string) (*Subscription, error) {
+	return m.subscribe(id, remoteIP, false)
+}
+
+func (m *Manager) SubscribePlayback(id string, ip netip.Addr) (*Subscription, error) {
+	return m.subscribe(id, ip.Unmap().String(), true)
+}
+
+func (m *Manager) subscribe(id, remoteIP string, authorize bool) (*Subscription, error) {
 	m.operations.Lock()
 	defer m.operations.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if authorize {
+		ip, _ := netip.ParseAddr(remoteIP)
+		if _, allowed := m.playbackClients.Match(ip); !allowed {
+			return nil, ErrClientDenied
+		}
+	}
 	e := m.entries[id]
 	if e == nil {
 		return nil, ErrNotFound
@@ -623,6 +660,9 @@ func (m *Manager) Subscribe(id, remoteIP string) (*Subscription, error) {
 	}
 	if m.ctx.Err() != nil {
 		return nil, ErrClosed
+	}
+	if e.policyBlocked {
+		return nil, ErrSourceDenied
 	}
 	if !e.channel.Enabled || e.blocked || m.options.Disabled {
 		return nil, ErrDisabled

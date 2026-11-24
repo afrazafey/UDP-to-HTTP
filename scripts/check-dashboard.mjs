@@ -50,8 +50,8 @@ try {
     data.clients = [{id:1,channel_id:"studio-feed",remote_ip:"192.0.2.24",connected_at:data.dashboard.sample.time,queued_bytes:0,closing:false,duration_seconds:83,bytes_delivered:12400000,output_bitrate:1490000}];
     data.settings.active.dashboard.theme = "light";
     data.settings.settings.dashboard.theme = "light";
-    data.dashboard.version = "0.4.2-rc.1";
-    data.system.version = "0.4.2-rc.1";
+    data.dashboard.version = "0.4.3-rc.1";
+    data.system.version = "0.4.3-rc.1";
     data.system.environment = "Production";
     data.system.release_maturity = "Release candidate";
     data.dashboard.activity = [{id:1,time:data.dashboard.sample.time,level:"info",component:"receiver",stream_id:"studio-feed",message:"Receiver started (test fixture)",context:{}}];
@@ -59,7 +59,7 @@ try {
     data.system.http_listeners.push({kind:"playback",address:"127.0.0.1:7781",state:"listening"});
     const routes = {
       "/health":{storage_ready:true},
-      "/api/v1/status":{...statusFixture, version:"0.4.2-rc.1",environment:"Production",phase:4},
+      "/api/v1/status":{...statusFixture, version:"0.4.3-rc.1",environment:"Production",phase:4},
       "/api/v1/dashboard":data.dashboard,
       "/api/v1/streams":{streams:data.streams},
       "/api/v1/streams/studio-feed/metrics":{stream:data.streams[0],history:data.dashboard.history},
@@ -247,6 +247,14 @@ try {
     const streaming=page.getByRole("tab",{name:"Streaming",selected:true});
     assert(await streaming.evaluate(el=>document.activeElement===el));
     await page.getByRole("tabpanel",{name:"Streaming"}).waitFor();
+    await page.getByRole("tab",{name:"Security"}).click();
+    for (const width of [1360, 390]) {
+      await page.setViewportSize({width,height:840});
+      await page.getByRole("textbox",{name:"Allowed playback clients"}).fill("10.14.0.5, 10.14.0.5/32\n2001:db8:abcd:1234:ffff:bbbb:dddd:1234");
+      await page.getByRole("button",{name:"Remove 10.14.0.5"}).waitFor();
+      await noOverflow(`${width}px policy editor`);
+      await page.getByRole("button",{name:"Reset draft"}).click();
+    }
     await page.goto(base+"/#/overview");
     await page.setViewportSize({width:1440,height:1080});
     await page.getByLabel("Dashboard theme").selectOption("dark");

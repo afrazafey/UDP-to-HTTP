@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/network"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 )
@@ -51,7 +52,11 @@ type SettingsManager struct {
 	base, active config.Config
 	repo         SettingsRepository
 	listeners    []string
+	activePolicy config.NetworkPolicies
+	viewRevision int64
+	viewSettings Settings
 	Live         func(config.Dashboard, config.Logging)
+	LiveAccess   func(netpolicy.Sources, netpolicy.Prefixes)
 }
 
 func FromConfig(c config.Config) Settings {
@@ -69,10 +74,14 @@ func (s Settings) Apply(base config.Config) config.Config {
 	return base
 }
 func NewSettings(ctx context.Context, base config.Config, repo SettingsRepository) (*SettingsManager, error) {
+	policies, err := base.NormalizeNetwork()
+	if err != nil {
+		return nil, err
+	}
 	if err := repo.InitServerSettings(ctx, FromConfig(base)); err != nil {
 		return nil, err
 	}
-	return &SettingsManager{base: base, active: base, repo: repo, listeners: []string{}}, nil
+	return &SettingsManager{base: base, active: base, activePolicy: policies, repo: repo, listeners: []string{}, viewRevision: -1}, nil
 }
 func (m *SettingsManager) Startup(ctx context.Context, ignore bool) (config.Config, error) {
 	r, err := m.repo.ReadServerSettings(ctx)
@@ -84,9 +93,10 @@ func (m *SettingsManager) Startup(ctx context.Context, ignore bool) (config.Conf
 	}
 	candidate := r.Desired.Apply(m.base)
 	candidate.Channels = nil
-	if err = candidate.Validate(); err != nil {
+	policies, err := candidate.NormalizeNetwork()
+	if err != nil || candidate.ValidateNormalized(policies) != nil {
 		_, _ = m.repo.RollbackServerSettings(ctx, "Stored settings failed validation; restored accepted revision")
-		return r.Accepted.Apply(m.base), nil
+		return m.restoreConfig(r.Accepted)
 	}
 	channels, e := m.repo.ListChannels(ctx)
 	if e != nil {
@@ -94,19 +104,39 @@ func (m *SettingsManager) Startup(ctx context.Context, ignore bool) (config.Conf
 	}
 	if len(channels) > candidate.Streaming.MaxStreams {
 		_, _ = m.repo.RollbackServerSettings(ctx, "Staged max_streams is below the current channel count; restored accepted settings")
-		return r.Accepted.Apply(m.base), nil
+		return m.restoreConfig(r.Accepted)
 	}
 	candidate.Channels = m.base.Channels
 	return candidate, nil
 }
 func (m *SettingsManager) Accepted(ctx context.Context) (config.Config, error) {
 	r, err := m.repo.ReadServerSettings(ctx)
-	return r.Accepted.Apply(m.base), err
+	if err != nil {
+		return m.base, err
+	}
+	return m.restoreConfig(r.Accepted)
+}
+func (m *SettingsManager) restoreConfig(settings Settings) (config.Config, error) {
+	c := settings.Apply(m.base)
+	c.Channels = nil
+	policies, err := c.NormalizeNetwork()
+	if err != nil {
+		return m.base, err
+	}
+	if err := c.ValidateNormalized(policies); err != nil {
+		return m.base, err
+	}
+	c.Channels = m.base.Channels
+	return c, nil
 }
 func (m *SettingsManager) Activate(ctx context.Context, c config.Config, accept bool) error {
+	policies, err := c.NormalizeNetwork()
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.active = c
+	m.active, m.activePolicy = c, policies
 	if !accept {
 		return nil
 	}
@@ -128,6 +158,14 @@ func (m *SettingsManager) View(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r.Revision != m.viewRevision {
+		desired := r.Desired.Apply(m.base)
+		if _, err := desired.NormalizeNetwork(); err != nil {
+			return nil, err
+		}
+		m.viewRevision, m.viewSettings = r.Revision, FromConfig(desired)
+	}
+	r.Desired = m.viewSettings
 	authentication := "trusted local user; remote binding prohibited"
 	forwarded := "ignored"
 	proxies := []string{}
@@ -146,54 +184,93 @@ func (m *SettingsManager) View(ctx context.Context) (map[string]any, error) {
 			"remote_playlist_access":   map[bool]string{true: "Enabled for approved playback and playlist client networks", false: "Disabled"}[m.base.Playlist.RemoteEnabled],
 			"management_binding":       net.JoinHostPort(m.base.Management.Host, strconv.Itoa(m.base.Management.Port)),
 			"storage_path":             m.base.Storage.Path, "authentication": authentication,
-			"trusted_proxies": proxies, "trusted_origins": origins, "forwarded_headers": forwarded,
+			"trusted_proxies": proxies, "playlist_allowed_client_networks": m.base.Playlist.AllowedClientNetworks, "trusted_origins": origins, "forwarded_headers": forwarded,
 			"playback_authorization": "actual-peer CIDR allowlist; bearer tokens unavailable",
 			"recovery_policy":        fmt.Sprintf("%s..%s exponential retry with %.0f%% jitter; rejoin after %s; YAML-only", m.base.Recovery.MinDelay.Value(), m.base.Recovery.MaxDelay.Value(), m.base.Recovery.Jitter*100, m.base.Recovery.RejoinAfter.Value()),
 			"startup_service":        "systemd controls process startup; channel startup is individually persisted",
 		},
 	}, nil
 }
+func copyLiveAccess(dst *config.Streaming, src config.Streaming) {
+	dst.AllowedClientNetworks = src.AllowedClientNetworks
+	dst.AllowedMulticastGroups = src.AllowedMulticastGroups
+	dst.AllowedUnicastSources = src.AllowedUnicastSources
+	dst.BlockedMulticastNetworks = src.BlockedMulticastNetworks
+	dst.AllowLoopbackUnicast = src.AllowLoopbackUnicast
+}
+
 func restartRequired(a, b Settings) bool {
 	a.Dashboard = b.Dashboard
 	a.Logging = b.Logging
+	copyLiveAccess(&a.Streaming, b.Streaming)
 	return !reflect.DeepEqual(a, b)
 }
 func (m *SettingsManager) Validate(ctx context.Context, s Settings) ([]string, error) {
+	_, _, notes, err := m.prepare(ctx, s)
+	return notes, err
+}
+func (m *SettingsManager) Preview(ctx context.Context, s Settings) (Settings, []string, bool, error) {
+	normalized, policies, notes, err := m.prepare(ctx, s)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return normalized, notes, m.needsMulticastConfirmation(policies), err
+}
+func (m *SettingsManager) Policy(s *Settings) (config.NetworkPolicies, error) {
+	if s == nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.activePolicy, nil
+	}
+	c := m.base
+	c.Streaming = s.Streaming
+	return c.NormalizeNetwork()
+}
+func (m *SettingsManager) prepare(ctx context.Context, s Settings) (Settings, config.NetworkPolicies, []string, error) {
 	c := s.Apply(m.base)
 	c.Channels = nil
-	if err := c.Validate(); err != nil {
-		return nil, err
+	policies, err := c.NormalizeNetwork()
+	if err == nil {
+		err = c.ValidateNormalized(policies)
 	}
+	if err != nil {
+		return s, policies, nil, err
+	}
+	s = FromConfig(c)
+	notes := []string{"Playback access changes apply when saved. Streams and clients excluded by the new policy disconnect; saved channels remain editable."}
 	if !restartRequired(s, FromConfig(m.Active())) {
-		return []string{"Only dashboard/logging preferences change; applied live after confirmation."}, nil
+		return s, policies, notes, nil
 	}
 	channels, err := m.repo.ListChannels(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPersistence, err)
+		return s, policies, nil, fmt.Errorf("%w: %v", ErrPersistence, err)
 	}
 	if len(channels) > c.Streaming.MaxStreams {
-		return nil, errors.New("max_streams cannot be below the existing channel count")
+		return s, policies, nil, errors.New("max_streams cannot be below the existing channel count")
 	}
 	for _, channel := range channels {
 		v := channel.Defaults(c.Streaming.MaxClients, c.Streaming.ClientBufferBytes, c.Streaming.UDPReceiveBuffer)
-		if err = v.Validate(c.StreamPolicy()); err != nil {
-			return nil, fmt.Errorf("channel %s: %w", v.ID, err)
-		}
 		if v.MaxClients > c.Streaming.MaxClients || v.ClientBufferBytes > c.Streaming.StreamBuffer || v.ClientBufferBytes > c.Streaming.MaxBufferedBytes {
-			return nil, fmt.Errorf("channel %s exceeds proposed limits", v.ID)
+			return s, policies, nil, fmt.Errorf("channel %s exceeds proposed limits", v.ID)
 		}
 	}
-	m.mu.Lock()
-	owned := append([]string{}, m.listeners...)
-	m.mu.Unlock()
-	return Preflight(c, owned)
+	preflight, err := Preflight(c, m.listenerAddresses())
+	return s, policies, append(notes, preflight...), err
 }
-func (m *SettingsManager) Save(ctx context.Context, revision int64, s Settings) (Record, error) {
-	if _, err := m.Validate(ctx, s); err != nil {
+func (m *SettingsManager) listenerAddresses() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.listeners...)
+}
+func (m *SettingsManager) Save(ctx context.Context, revision int64, s Settings, confirmAllMulticast bool) (Record, error) {
+	s, policies, _, err := m.prepare(ctx, s)
+	if err != nil {
 		return Record{}, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.needsMulticastConfirmation(policies) && !confirmAllMulticast {
+		return Record{}, errors.New("confirm_all_multicast is required to allow all IPv4 multicast groups")
+	}
 	r, err := m.repo.WriteServerSettings(ctx, revision, s)
 	if err != nil {
 		if !errors.Is(err, ErrRevision) {
@@ -201,12 +278,28 @@ func (m *SettingsManager) Save(ctx context.Context, revision int64, s Settings) 
 		}
 		return r, err
 	}
+	m.applyLive(s, policies)
+	m.viewRevision, m.viewSettings = r.Revision, s
+	return r, nil
+}
+
+func (m *SettingsManager) needsMulticastConfirmation(policies config.NetworkPolicies) bool {
+	return policies.Sources.AllowsAllMulticast() && !m.activePolicy.Sources.AllowsAllMulticast()
+}
+func (m *SettingsManager) applyLive(s Settings, policies config.NetworkPolicies) {
+	current := m.active.Streaming
+	updated := current
+	copyLiveAccess(&updated, s.Streaming)
+	if m.LiveAccess != nil && !reflect.DeepEqual(updated, current) {
+		m.LiveAccess(policies.Sources, policies.Playback)
+	}
+	m.active.Streaming = updated
+	m.activePolicy = policies
 	m.active.Dashboard = s.Dashboard
 	m.active.Logging = s.Logging
 	if m.Live != nil {
 		m.Live(s.Dashboard, s.Logging)
 	}
-	return r, nil
 }
 func (m *SettingsManager) Rollback(ctx context.Context, revision int64) (Record, error) {
 	m.mu.Lock()
@@ -218,13 +311,19 @@ func (m *SettingsManager) Rollback(ctx context.Context, revision int64) (Record,
 	if current.Revision != revision {
 		return Record{}, ErrRevision
 	}
+	accepted := current.Accepted.Apply(m.base)
+	accepted.Channels = nil
+	policies, err := accepted.NormalizeNetwork()
+	if err != nil {
+		return Record{}, err
+	}
+	if err := accepted.ValidateNormalized(policies); err != nil {
+		return Record{}, err
+	}
 	r, err := m.repo.RollbackServerSettings(ctx, "")
 	if err == nil {
-		m.active.Dashboard = r.Desired.Dashboard
-		m.active.Logging = r.Desired.Logging
-		if m.Live != nil {
-			m.Live(r.Desired.Dashboard, r.Desired.Logging)
-		}
+		m.applyLive(FromConfig(accepted), policies)
+		m.viewRevision, m.viewSettings = r.Revision, FromConfig(accepted)
 	}
 	return r, err
 }

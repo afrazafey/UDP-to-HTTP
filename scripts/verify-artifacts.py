@@ -59,7 +59,7 @@ for line in lines:
         with tarfile.open(fileobj=io.BytesIO(members['control.tar.gz']),mode='r:gz') as control:
             for entry in control: entry.name=entry.name.removeprefix('./')
             text=control.extractfile('control').read().decode();assert f'Architecture: {arch}\n' in text;assert 'Package: udphttp-proxy\n' in text
-            if 'Version: 0.4.2' in text:
+            if 'Version: 0.4.2' in text or 'Version: 0.4.3' in text:
                 assert 'Maintainer: Afraaz\n' in text and 'Homepage: https://afraaz.xyz\n' in text
             assert control.extractfile('conffiles').read()==b'/etc/udphttp-proxy/config.yaml\n'
             for hook in ('postinst','prerm','postrm'):assert control.getmember(hook).mode&0o111 and b'\r\n' not in control.extractfile(hook).read()
@@ -80,6 +80,9 @@ for line in lines:
             assert payload.getmember('usr/bin/udphttp-proxy').mode==0o755
             elf(payload.extractfile('usr/bin/udphttp-proxy').read(),arch)
             assert 'etc/udphttp-proxy/config.yaml' in payload.getnames();assert 'usr/share/doc/udphttp-proxy/docs/PHASE4_REPORT.md' in payload.getnames()
+            if 'Version: 0.4.3' in text:
+                assert 'usr/share/doc/udphttp-proxy/docs/PHASE4_3_REPORT.md' in payload.getnames()
+                assert 'usr/share/doc/udphttp-proxy/configs/production-network.example.yaml' in payload.getnames()
             unit=payload.extractfile('usr/lib/systemd/system/udphttp-proxy.service').read();assert b'User=udphttp-proxy' in unit
         report['debian_packages']+=1
     elif name.endswith('.exe'):windows(path.read_bytes())

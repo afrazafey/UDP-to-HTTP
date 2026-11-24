@@ -19,7 +19,7 @@ import zipfile
 root=Path(__file__).resolve().parents[1]
 def run(args,**kwargs):return subprocess.run(args,cwd=root,check=True,**kwargs)
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--version',default='0.4.2-rc.1')
+parser.add_argument('--version',default='0.4.3-rc.1')
 parser.add_argument('--go',default='go')
 parser.add_argument('--targets',default='linux/amd64,linux/arm64,windows/amd64')
 parser.add_argument('--output',type=Path,default=root/'build')

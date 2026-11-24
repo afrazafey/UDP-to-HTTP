@@ -15,7 +15,7 @@ func TestProductionPolicyValidation(t *testing.T) {
 		"advertised URL":        func(c *Config) { c.Playlist.AdvertisedHost = "http://server/path" },
 		"advertised port":       func(c *Config) { c.Playlist.AdvertisedHost = "server:7781" },
 		"remote without policy": func(c *Config) { c.Playlist.RemoteEnabled = true },
-		"playlist CIDR":         func(c *Config) { c.Playlist.AllowedClientNetworks = []string{"192.168.10.2/24"} },
+		"playlist CIDR":         func(c *Config) { c.Playlist.AllowedClientNetworks = []string{"192.168.10.2/33"} },
 		"unknown log format":    func(c *Config) { c.LogFormat = "yaml" },
 	} {
 		t.Run(name, func(t *testing.T) {

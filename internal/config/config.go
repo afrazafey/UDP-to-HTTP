@@ -10,9 +10,11 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/udphttp-proxy/udphttp-proxy/internal/netpolicy"
 	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 
 	"go.yaml.in/yaml/v3"
@@ -68,9 +70,9 @@ type Recovery struct {
 	MaxAttempts int      `yaml:"max_attempts" json:"max_attempts"`
 }
 type Playlist struct {
-	AdvertisedHost        string   `yaml:"advertised_host" json:"advertised_host"`
-	RemoteEnabled         bool     `yaml:"remote_enabled" json:"remote_enabled"`
-	AllowedClientNetworks []string `yaml:"allowed_client_networks" json:"allowed_client_networks"`
+	AdvertisedHost        string         `yaml:"advertised_host" json:"advertised_host"`
+	RemoteEnabled         bool           `yaml:"remote_enabled" json:"remote_enabled"`
+	AllowedClientNetworks netpolicy.List `yaml:"allowed_client_networks" json:"allowed_client_networks"`
 }
 type Dashboard struct {
 	Name               string `yaml:"name" json:"name"`
@@ -89,33 +91,33 @@ type Management struct {
 	ReverseProxy    ManagementReverseProxy `yaml:"reverse_proxy" json:"reverse_proxy"`
 }
 type ManagementReverseProxy struct {
-	Enabled        bool     `yaml:"enabled" json:"enabled"`
-	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
-	TrustedOrigins []string `yaml:"trusted_origins" json:"trusted_origins"`
+	Enabled        bool           `yaml:"enabled" json:"enabled"`
+	TrustedProxies netpolicy.List `yaml:"trusted_proxies" json:"trusted_proxies"`
+	TrustedOrigins []string       `yaml:"trusted_origins" json:"trusted_origins"`
 }
 type Network struct {
-	MulticastInterface string   `yaml:"multicast_interface" json:"multicast_interface"`
-	HTTPInterface      string   `yaml:"http_interface" json:"http_interface"`
-	HTTPPort           int      `yaml:"http_port" json:"http_port"`
-	SecondaryHTTPPort  int      `yaml:"secondary_http_port" json:"secondary_http_port"`
-	HTTPBindAddresses  []string `yaml:"http_bind_addresses" json:"http_bind_addresses"`
+	MulticastInterface string         `yaml:"multicast_interface" json:"multicast_interface"`
+	HTTPInterface      string         `yaml:"http_interface" json:"http_interface"`
+	HTTPPort           int            `yaml:"http_port" json:"http_port"`
+	SecondaryHTTPPort  int            `yaml:"secondary_http_port" json:"secondary_http_port"`
+	HTTPBindAddresses  netpolicy.List `yaml:"http_bind_addresses" json:"http_bind_addresses"`
 }
 type Streaming struct {
-	Enabled                  bool     `yaml:"enabled" json:"enabled"`
-	UDPReceiveBuffer         int      `yaml:"udp_receive_buffer" json:"udp_receive_buffer"`
-	StreamBuffer             int      `yaml:"stream_buffer" json:"stream_buffer"`
-	MaxClients               int      `yaml:"max_clients" json:"max_clients"`
-	ConnectTimeout           Duration `yaml:"connect_timeout" json:"connect_timeout"`
-	AllowedClientNetworks    []string `yaml:"allowed_client_networks" json:"allowed_client_networks"`
-	AllowedMulticastGroups   []string `yaml:"allowed_multicast_groups" json:"allowed_multicast_groups"`
-	AllowedUnicastSources    []string `yaml:"allowed_unicast_sources" json:"allowed_unicast_sources"`
-	BlockedMulticastNetworks []string `yaml:"blocked_multicast_networks" json:"blocked_multicast_networks"`
-	AllowLoopbackUnicast     bool     `yaml:"allow_loopback_unicast" json:"allow_loopback_unicast"`
-	MaxStreams               int      `yaml:"max_streams" json:"max_streams"`
-	ClientBufferBytes        int      `yaml:"client_buffer_bytes" json:"client_buffer_bytes"`
-	MaxBufferedBytes         int      `yaml:"max_buffered_bytes" json:"max_buffered_bytes"`
-	InactivityTimeout        Duration `yaml:"inactivity_timeout" json:"inactivity_timeout"`
-	ClientWriteTimeout       Duration `yaml:"client_write_timeout" json:"client_write_timeout"`
+	Enabled                  bool           `yaml:"enabled" json:"enabled"`
+	UDPReceiveBuffer         int            `yaml:"udp_receive_buffer" json:"udp_receive_buffer"`
+	StreamBuffer             int            `yaml:"stream_buffer" json:"stream_buffer"`
+	MaxClients               int            `yaml:"max_clients" json:"max_clients"`
+	ConnectTimeout           Duration       `yaml:"connect_timeout" json:"connect_timeout"`
+	AllowedClientNetworks    netpolicy.List `yaml:"allowed_client_networks" json:"allowed_client_networks"`
+	AllowedMulticastGroups   netpolicy.List `yaml:"allowed_multicast_groups" json:"allowed_multicast_groups"`
+	AllowedUnicastSources    netpolicy.List `yaml:"allowed_unicast_sources" json:"allowed_unicast_sources"`
+	BlockedMulticastNetworks netpolicy.List `yaml:"blocked_multicast_networks" json:"blocked_multicast_networks"`
+	AllowLoopbackUnicast     bool           `yaml:"allow_loopback_unicast" json:"allow_loopback_unicast"`
+	MaxStreams               int            `yaml:"max_streams" json:"max_streams"`
+	ClientBufferBytes        int            `yaml:"client_buffer_bytes" json:"client_buffer_bytes"`
+	MaxBufferedBytes         int            `yaml:"max_buffered_bytes" json:"max_buffered_bytes"`
+	InactivityTimeout        Duration       `yaml:"inactivity_timeout" json:"inactivity_timeout"`
+	ClientWriteTimeout       Duration       `yaml:"client_write_timeout" json:"client_write_timeout"`
 }
 type Storage struct {
 	Path string `yaml:"path" json:"path"`
@@ -174,7 +176,11 @@ func Load(path string, getenv func(string) string) (Config, error) {
 			cfg.Logging.Level = v
 		}
 	}
-	return cfg, cfg.Validate()
+	policies, err := cfg.NormalizeNetwork()
+	if err != nil {
+		return cfg, err
+	}
+	return cfg, cfg.ValidateNormalized(policies)
 }
 
 var numericAddress = regexp.MustCompile(`^[0-9.]+$`)
@@ -194,6 +200,15 @@ func validInterface(s string) bool {
 func validPort(p int) bool { return p > 0 && p <= 65535 }
 
 func (c Config) Validate() error {
+	policies, err := c.NormalizeNetwork()
+	if err != nil {
+		return err
+	}
+	return c.ValidateNormalized(policies)
+}
+
+// ValidateNormalized validates a configuration after NormalizeNetwork.
+func (c Config) ValidateNormalized(policies NetworkPolicies) error {
 	var issues []error
 	add := func(ok bool, msg string) {
 		if !ok {
@@ -211,10 +226,6 @@ func (c Config) Validate() error {
 		add(e == nil && !strings.Contains(c.Playlist.AdvertisedHost, ":"), "playlist.advertised_host must be an IPv4 address or hostname without scheme, port or path")
 	}
 	add(!c.Playlist.RemoteEnabled || (c.Playlist.AdvertisedHost != "" && len(c.Playlist.AllowedClientNetworks) > 0), "remote playlists require an advertised_host and explicit client CIDRs")
-	for _, cidr := range c.Playlist.AllowedClientNetworks {
-		p, e := netip.ParsePrefix(cidr)
-		add(e == nil && p.Addr().Is4() && p == p.Masked(), "playlist.allowed_client_networks requires canonical IPv4 CIDRs")
-	}
 	add(err == nil && ip.Is4() && ip.IsLoopback(), "management.host must be a literal IPv4 loopback address")
 	add(validPort(c.Management.Port), "management.port must be 1..65535")
 	if err := c.Management.ReverseProxy.Validate(); err != nil {
@@ -226,14 +237,7 @@ func (c Config) Validate() error {
 	add(validInterface(c.Network.MulticastInterface), "network.multicast_interface must be an interface name or unicast IPv4 address")
 	add(validInterface(c.Network.HTTPInterface), "network.http_interface must be an interface name or unicast IPv4 address")
 	add(len(c.Network.HTTPBindAddresses) <= 8, "at most eight http_bind_addresses are supported")
-	seenBinds := map[string]bool{}
-	for _, address := range c.Network.HTTPBindAddresses {
-		ip, e := netip.ParseAddr(address)
-		add(e == nil && ip.Is4() && !ip.IsMulticast() && address != "255.255.255.255", "http_bind_addresses must be literal local IPv4 addresses or 0.0.0.0")
-		add(!seenBinds[address], "duplicate HTTP bind address")
-		seenBinds[address] = true
-	}
-	add(!seenBinds["0.0.0.0"] || len(seenBinds) == 1, "wildcard HTTP bind cannot be combined with specific addresses")
+	add(len(c.Network.HTTPBindAddresses) <= 1 || !slices.Contains(c.Network.HTTPBindAddresses, "0.0.0.0"), "wildcard HTTP bind cannot be combined with specific addresses")
 	add(validPort(c.Network.HTTPPort), "network.http_port must be 1..65535")
 	add(c.Network.SecondaryHTTPPort == 0 || validPort(c.Network.SecondaryHTTPPort), "network.secondary_http_port must be 0 (disabled) or 1..65535")
 	add(c.Network.SecondaryHTTPPort == 0 || c.Network.SecondaryHTTPPort != c.Network.HTTPPort, "streaming HTTP ports must differ")
@@ -244,27 +248,11 @@ func (c Config) Validate() error {
 	add(c.Streaming.MaxStreams >= 1 && c.Streaming.MaxStreams <= 1024, "streaming.max_streams must be 1..1024")
 	add(c.Streaming.ClientBufferBytes >= 564 && c.Streaming.ClientBufferBytes <= 8<<20 && c.Streaming.ClientBufferBytes <= c.Streaming.StreamBuffer, "streaming.client_buffer_bytes must be 564 bytes..8 MiB and within stream_buffer")
 	add(c.Streaming.MaxBufferedBytes >= 64<<10 && c.Streaming.MaxBufferedBytes <= 1<<30 && c.Streaming.MaxBufferedBytes >= c.Streaming.ClientBufferBytes, "max_buffered_bytes must be 64 KiB..1 GiB and cover a client buffer")
-	for _, s := range c.Streaming.AllowedClientNetworks {
-		p, e := netip.ParsePrefix(s)
-		add(e == nil && p.Addr().Is4() && p == p.Masked(), "allowed_client_networks requires canonical IPv4 CIDRs")
-	}
-	for _, s := range c.Streaming.AllowedMulticastGroups {
-		p, e := netip.ParseAddr(s)
-		add(e == nil && p.Is4() && p.IsMulticast() && !netip.MustParsePrefix("224.0.0.0/24").Contains(p), "allowed_multicast_groups requires literal IPv4 multicast addresses excluding reserved 224.0.0.0/24")
-	}
-	for _, s := range c.Streaming.AllowedUnicastSources {
-		p, e := netip.ParseAddr(s)
-		add(e == nil && p.Is4() && (p.IsGlobalUnicast() || (p.IsLoopback() && c.Streaming.AllowLoopbackUnicast)), "allowed_unicast_sources requires literal unicast IPv4 addresses; loopback needs explicit permission")
-	}
-	for _, s := range c.Streaming.BlockedMulticastNetworks {
-		p, e := netip.ParsePrefix(s)
-		add(e == nil && p.Addr().Is4() && p.Bits() >= 4 && p == p.Masked() && p.Addr().IsMulticast(), "blocked_multicast_networks requires canonical IPv4 multicast CIDRs")
-	}
 	add(len(c.Channels) <= c.Streaming.MaxStreams, "channels exceeds max_streams")
 	ids := map[string]bool{}
 	for _, channel := range c.Channels {
 		v := channel.Defaults(c.Streaming.MaxClients, c.Streaming.ClientBufferBytes, c.Streaming.UDPReceiveBuffer)
-		if e := v.Validate(c.StreamPolicy()); e != nil {
+		if e := v.ValidateWithSources(policies.Sources); e != nil {
 			issues = append(issues, fmt.Errorf("channel %q: %w", v.ID, e))
 		}
 		add(!ids[v.ID], "duplicate channel ID")

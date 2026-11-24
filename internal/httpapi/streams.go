@@ -23,6 +23,8 @@ func streamError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.As(err, &tooLarge):
 		code = 413
+	case errors.Is(err, stream.ErrClientDenied), errors.Is(err, stream.ErrSourceDenied):
+		code = 403
 	case errors.Is(err, stream.ErrNotFound):
 		code = 404
 	case errors.Is(err, stream.ErrConflict):
@@ -174,17 +176,7 @@ func (s *Service) playback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	ip, parseErr := netip.ParseAddr(host)
-	allowed := false
-	if err == nil && parseErr == nil {
-		for _, cidr := range s.options.Config.Streaming.AllowedClientNetworks {
-			prefix, e := netip.ParsePrefix(cidr)
-			if e == nil && prefix.Contains(ip.Unmap()) {
-				allowed = true
-				break
-			}
-		}
-	}
-	if !allowed {
+	if err != nil || parseErr != nil || !s.playbackClientAllowed(ip) {
 		writeJSON(w, 403, map[string]string{"error": "Playback client IP is not allowed"})
 		return
 	}
@@ -198,14 +190,7 @@ func (s *Service) playback(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		permitted := false
-		for _, cidr := range s.options.Config.Playlist.AllowedClientNetworks {
-			p, e := netip.ParsePrefix(cidr)
-			if e == nil && p.Contains(ip.Unmap()) {
-				permitted = true
-			}
-		}
-		if !permitted {
+		if _, permitted := s.playlistClients.Match(ip); !permitted {
 			writeJSON(w, 403, map[string]string{"error": "Playlist client IP is not allowed"})
 			return
 		}
@@ -244,7 +229,7 @@ func (s *Service) playback(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "Playback query parameters are not supported"})
 		return
 	}
-	sub, err := s.options.Streams.Subscribe(id, ip.Unmap().String())
+	sub, err := s.options.Streams.SubscribePlayback(id, ip)
 	if err != nil {
 		streamError(w, err)
 		return
@@ -280,6 +265,14 @@ func (s *Service) playback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *Service) playbackClientAllowed(ip netip.Addr) bool {
+	if s.options.Streams != nil {
+		return s.options.Streams.ClientAllowed(ip)
+	}
+	_, allowed := s.playbackClients.Match(ip)
+	return allowed
 }
 
 func (s *Service) ServePlayback(ctx context.Context, listener net.Listener) error {
