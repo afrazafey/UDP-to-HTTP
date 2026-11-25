@@ -73,8 +73,15 @@ try {
       "/api/v1/playlist/config":{playlist:{advertised_host:"127.0.0.1",remote_enabled:false},primary_port:7781,secondary_port:7782},
     };
     mock=createHTTPServer(async (req,res)=>{
-      const path = new URL(req.url, base).pathname;
+      const url = new URL(req.url, base);
+      const path = url.pathname;
       try {
+        if (path === "/api/v1/playlist.m3u") {
+          const host=url.searchParams.get("host") || "127.0.0.1";
+          res.writeHead(200,{"Content-Type":"audio/x-mpegurl"});
+          res.end(`#EXTM3U\n#EXTINF:-1,Studio Feed\nhttp://${host}:7781/live/studio-feed.ts\n`);
+          return;
+        }
         if (path === "/api/v1/settings" && req.method === "PUT") {
           const chunks=[];
           for await (const chunk of req) chunks.push(chunk);
@@ -101,7 +108,7 @@ try {
     await new Promise((resolve,reject)=>mock.once("error",reject).listen(management,"127.0.0.1",resolve));
   } else {
     daemon=spawn(resolve(binary),["serve","--config",config],{stdio:["ignore","ignore","pipe"],windowsHide:true});
-    daemon.on("error",error=>startupError=error);
+    daemon.once("error",error=>startupError=new Error(`Could not start the dashboard daemon (${error.code}) at ${resolve(binary)}`, {cause:error}));
     daemon.stderr.on("data",chunk=>{log=(log+chunk).slice(-8192);});
   }
   let ready=false;
@@ -241,6 +248,18 @@ try {
     const previewRow=page.getByRole("table",{name:"Playlist order for the selected group"}).locator("tbody tr").first();
     const previewBounds=await previewRow.boundingBox();
     assert(previewBounds && previewBounds.height<140 && previewBounds.y<500,"Playlist preview shows channel rows near the panel heading");
+    await page.goto(base+"/#/import-export?group=all&mode=export");
+    await page.getByRole("textbox",{name:"Playback host"}).fill("127.0.0.2");
+    await page.getByLabel("Playback port").selectOption("primary");
+    const [playlist]=await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button",{name:"Download M3U"}).click(),
+    ]);
+    assert.equal(playlist.suggestedFilename(),"udphttp-channels.m3u");
+    assert.match(await readFile(await playlist.path(),"utf8"),/^#EXTM3U\r?\n[\s\S]*http:\/\/127\.0\.0\.2:\d+\/live\/studio-feed\.ts/m);
+    await page.setViewportSize({width:320,height:840});
+    await noOverflow("mobile playlist export with a generated URL");
+    await page.setViewportSize({width:1360,height:765});
     await page.goto(base+"/#/settings");
     const general=page.getByRole("tab",{name:"General"});
     await general.press("ArrowRight");

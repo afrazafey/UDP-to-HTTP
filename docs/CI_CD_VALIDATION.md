@@ -27,3 +27,7 @@ Thin CLI entrypoints and linked metadata have limited standalone coverage. The p
 The manual release workflow requires the same matrix, builds the candidate, verifies the Debian manifests and SHA-256 files, and retains artifacts. Its draft operation is explicitly selected by the caller and uses the release approval environment. Configure that environment with required reviewers before approving a draft. Stable promotion remains a repository owner decision.
 
 The release workflow runs CycloneDX in application mode with the repository root as the module directory and `-main cmd/udphttp-proxy` as the executable entry point. The Go module root has no Go package. The workflow generates the Linux AMD64 SBOM with CGO disabled, matching the release build constraints. [CycloneDX application options](https://github.com/CycloneDX/cyclonedx-gomod/tree/v1.12.0#app)
+
+The Linux verification runners restore the downloaded daemon's execute bit after checking candidate hashes. Zipped GitHub Actions artifacts drop file mode bits. This restores execution for browser and streaming smoke tests on both Linux architectures. [GitHub Actions artifact permissions](https://github.com/actions/upload-artifact#permission-loss)
+
+The Windows backup tests exercise runner paths that may contain an NTFS short name such as `RUNNER~1`. Backup and restore validate each directory entry so ordinary aliases work while symbolic links and linked directories are rejected.

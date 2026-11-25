@@ -1,31 +1,24 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ClipboardList, Download, FileUp } from "lucide-react";
 import type { Channel } from "../Streaming";
 import type { OperationsData } from "../types/operations";
-import { api, download, mutate } from "../services/api";
+import { mutate } from "../services/api";
 import {
   Button,
-  CopyButton,
   DataTable,
   Dialog,
   ErrorBanner,
-  Empty,
   Field,
   Panel,
   useAction,
 } from "../components/ui";
-import { ChannelIdentity } from "../components/streams/ChannelMenu";
+import { PlaylistExport } from "../components/playlist/PlaylistExport";
 
 type Entry = {
   line: number;
   channel: Channel;
   error: string;
   duplicate: string;
-};
-type PlaylistConfig = {
-  playlist: { advertised_host: string; remote_enabled: boolean };
-  primary_port: number;
-  secondary_port: number;
 };
 export function saveText(text: string, filename: string) {
   const url = URL.createObjectURL(
@@ -47,8 +40,6 @@ export function PlaylistsPage({
   mode?: "both" | "import" | "export";
 }) {
   const action = useAction();
-  const [config, setConfig] = useState<PlaylistConfig>();
-  const [configError, setConfigError] = useState("");
   const [text, setText] = useState("");
   const [iface, setIface] = useState(
     data.settings.active.network.multicast_interface,
@@ -57,8 +48,6 @@ export function PlaylistsPage({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [update, setUpdate] = useState(false);
   const [confirm, setConfirm] = useState<Channel[] | null>(null);
-  const [group, setGroup] = useState("");
-  const [port, setPort] = useState("preferred");
   const [fileError, setFileError] = useState("");
   const [imported, setImported] = useState<number>();
   const [previewed, setPreviewed] = useState(false);
@@ -79,141 +68,26 @@ export function PlaylistsPage({
       setFileError(String(error));
     }
   };
-  useEffect(() => {
-    if (mode === "import") return;
-    const controller = new AbortController();
-    void api<PlaylistConfig>("/api/v1/playlist/config", {}, controller.signal)
-      .then(setConfig)
-      .catch((e) => {
-        if (!controller.signal.aborted) setConfigError(String(e.message));
-      });
-    return () => controller.abort();
-  }, [mode]);
-  const query = new URLSearchParams({
-    port,
-    ...(group ? { group } : {}),
-  }).toString();
-  const exportPath = `/api/v1/playlist.m3u?${query}`;
-  const canSelect = (e: Entry) =>
-    !e.error && (e.duplicate !== "existing" || update);
-  const playlistURL = config?.playlist.remote_enabled
-    ? `http://${config.playlist.advertised_host}:${port === "secondary" ? config.secondary_port : config.primary_port}/playlist.m3u?${query}`
-    : `${window.location.origin}${exportPath}`;
-  const enabled = data.streams.filter((s) => s.channel.enabled);
-  const preview = enabled
-    .filter((s) => !group || s.channel.group === group)
-    .sort(
-      (a, b) =>
-        (a.channel.sort_order ?? 0) - (b.channel.sort_order ?? 0) ||
-        a.channel.id.localeCompare(b.channel.id),
-    );
+  const canSelect = (entry: Entry) =>
+    !entry.error && (entry.duplicate !== "existing" || update);
   return (
     <>
-      {(action.error || configError || fileError) && (
-        <ErrorBanner>{action.error || configError || fileError}</ErrorBanner>
+      {mode !== "both" && (
+        <nav className="op-playlist-modes" aria-label="Playlist tools">
+          <a href="#/import-export" aria-current={mode === "import" ? "page" : undefined}>
+            <FileUp size={17} aria-hidden="true" /> Import channels
+          </a>
+          <a href="#/import-export?mode=export" aria-current={mode === "export" ? "page" : undefined}>
+            <Download size={17} aria-hidden="true" /> Export M3U
+          </a>
+        </nav>
       )}
-      {mode !== "import" && (
-        <div className="op-playlist-layout">
-          <Panel
-            title="Export options"
-            className="op-playlist-options"
-          >
-            <div className="op-playlist-host">
-              <span>Advertised host</span>
-              <strong className="mono">
-                {config?.playlist.advertised_host ||
-                  (config ? "Unconfigured" : "Unavailable")}
-              </strong>
-              <p>{config?.playlist.remote_enabled
-                ? "Remote download uses both playlist and playback IP policies."
-                : "Playlist URLs require management access."}</p>
-              {config && !config.playlist.advertised_host && <p>Set playlist.advertised_host in the server configuration to enable export.</p>}
-            </div>
-            <div className="op-toolbar">
-              <Field label="Export group">
-                <select value={group} onChange={(e) => setGroup(e.target.value)}>
-                  <option value="">All groups</option>
-                  {[
-                    ...new Set(
-                      data.streams
-                        .map((s) => s.channel.group || "")
-                        .filter(Boolean),
-                    ),
-                  ]
-                    .sort()
-                    .map((g) => (
-                      <option key={g}>{g}</option>
-                    ))}
-                </select>
-              </Field>
-              <Field label="Playback port">
-                <select value={port} onChange={(e) => setPort(e.target.value)}>
-                  <option value="preferred">Channel preference</option>
-                  <option value="primary">Primary</option>
-                  <option value="secondary" disabled={!config?.secondary_port}>
-                    Secondary
-                  </option>
-                </select>
-              </Field>
-              <Button
-                className="primary"
-                disabled={action.busy || !config?.playlist.advertised_host}
-                onClick={() =>
-                  void action.run(
-                    () => download(exportPath, "udphttp-channels.m3u"),
-                    "Playlist downloaded",
-                  )
-                }
-              >
-                <Download size={16} /> Download M3U
-              </Button>
-              {config?.playlist.advertised_host && (
-                <CopyButton value={playlistURL} label="Copy playlist URL" />
-              )}
-            </div>
-          </Panel>
-          <Panel
-            title="Playlist preview"
-            description={`${preview.length} channels shown · ${enabled.length} enabled`}
-            action={mode === "export" && <a className="op-button" href="#/import-export"><FileUp size={16} /> Import channels</a>}
-          >
-            {preview.length ? <DataTable caption="Playlist order for the selected group">
-              <thead role="rowgroup">
-                <tr role="row">
-                  <th role="columnheader" scope="col">Channel</th>
-                  <th role="columnheader" scope="col">Group</th>
-                  <th role="columnheader" scope="col">Playback port</th>
-                </tr>
-              </thead>
-              <tbody role="rowgroup">
-                {preview.map(stream => {
-                  const { channel } = stream;
-                  const secondary =
-                    port === "secondary" ||
-                    (port === "preferred" &&
-                      channel.preferred_playback_port === "secondary");
-                  return (
-                    <tr role="row" key={channel.id}>
-                      <td role="cell" data-label="Channel" data-primary><ChannelIdentity stream={stream} /></td>
-                      <td role="cell" data-label="Group">{channel.group || "Ungrouped"}</td>
-                      <td role="cell" data-label="Playback port">
-                        {(secondary
-                          ? config?.secondary_port
-                          : config?.primary_port) || "Unavailable"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </DataTable> : <Empty title="No enabled channels match this group" />}
-          </Panel>
-        </div>
-      )}
+      {mode !== "import" && <PlaylistExport streams={data.streams} />}
+      {(action.error || fileError) && <ErrorBanner>{action.error || fileError}</ErrorBanner>}
       {mode !== "export" && (
         <Panel
           title="Import channels"
           description="Upload or paste an M3U playlist, then preview the channels before saving."
-          action={mode === "import" && <a className="op-button" href="#/import-export?mode=export"><Download size={16} /> Export playlist</a>}
         >
           {previewed && <p className="op-panel-note op-import-status" role="status">
             {imported != null

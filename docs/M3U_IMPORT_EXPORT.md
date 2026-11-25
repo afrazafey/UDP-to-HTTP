@@ -25,9 +25,9 @@ API: POST `/api/v1/import/preview` with `{ "text": "#EXTM3U\n...", "interface": 
 
 ## Export
 
-Set YAML `playlist.advertised_host` to an explicitly reachable IPv4/hostname independently of the listen address; omit scheme and port. Select group and primary/secondary/channel-preferred playback port. Enabled channels export in sort-order/ID order with name, TVG metadata, group, logo and native `/live/ID.ts` URL. Individual M3U buttons use `id` filtering. Missing advertised host or a disabled selected secondary listener produces an error instead of exporting a loopback URL.
+Enter a player-reachable IPv4 address or hostname in Export M3U. The field defaults to YAML `playlist.advertised_host` when configured. Leave out the scheme, port, and path. A field edit applies to the current management download. Select a channel group and the primary, secondary, or channel-preferred playback port. Enabled channels export in sort-order/ID order with name, TVG metadata, group, logo, and the native `/live/ID.ts` URL. Choose Primary if a channel prefers a disabled secondary listener.
 
-Management download: GET `/api/v1/playlist.m3u?port=preferred&group=MUSIC` (`id=trace-urban` optionally). MIME is `audio/x-mpegurl`; the dashboard supports download/copy. The default copy URL requires local management or authenticated trusted-proxy access; it is not a public API.
+Management download uses GET `/api/v1/playlist.m3u?port=preferred&group=MUSIC`. Use optional `id=trace-urban` to export one channel and `host=192.168.10.103` to override the configured host for this request. The response is `audio/x-mpegurl`. Management links require local access or an authenticated trusted proxy. Remote playlist links use the saved host and retain both client allowlists.
 
 Remote player download is a separate explicit opt-in:
 

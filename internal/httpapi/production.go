@@ -2,14 +2,17 @@ package httpapi
 
 import (
 	"errors"
-	"github.com/udphttp-proxy/udphttp-proxy/internal/playlist"
-	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/udphttp-proxy/udphttp-proxy/internal/config"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/playlist"
+	"github.com/udphttp-proxy/udphttp-proxy/internal/stream"
 )
 
 func (s *Service) exportPlaylist(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +29,20 @@ func (s *Service) exportPlaylist(w http.ResponseWriter, r *http.Request) {
 		channels = append(channels, v.Channel)
 	}
 	cfg := s.options.Config
-	text, err := playlist.Generate(channels, cfg.Playlist.AdvertisedHost, cfg.Network.HTTPPort, cfg.Network.SecondaryHTTPPort, r.URL.Query().Get("port"), r.URL.Query().Get("group"), r.URL.Query().Get("id"))
+	query := r.URL.Query()
+	host := cfg.Playlist.AdvertisedHost
+	if overrides, present := query["host"]; present {
+		if r.URL.Path != "/api/v1/playlist.m3u" || len(overrides) != 1 || overrides[0] == "" {
+			streamError(w, errors.New("a playback host override is only available for management downloads"))
+			return
+		}
+		host = overrides[0]
+		if _, err := config.ParseManagementOrigin("http://" + host); err != nil || strings.Contains(host, ":") {
+			streamError(w, errors.New("playback host must be a hostname or IPv4 address without a scheme, port or path"))
+			return
+		}
+	}
+	text, err := playlist.Generate(channels, host, cfg.Network.HTTPPort, cfg.Network.SecondaryHTTPPort, query.Get("port"), query.Get("group"), query.Get("id"))
 	if err != nil {
 		streamError(w, err)
 		return

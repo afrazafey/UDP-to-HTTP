@@ -128,3 +128,30 @@ func TestPlaylistExposureAndDiagnosticsRestrictions(t *testing.T) {
 		t.Fatal(w.Code, w.Body)
 	}
 }
+
+func TestManagementPlaylistHostOverride(t *testing.T) {
+	s, m, c := streamingService(t)
+	if err := m.Put(t.Context(), c, true); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/playlist.m3u"
+	w := managementRequest(t, s, "GET", path+"?port=primary&host=10.14.0.23", nil, false)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "#EXTM3U\n") ||
+		!strings.Contains(w.Body.String(), "http://10.14.0.23:7781/live/live.ts") {
+		t.Fatalf("override: %d %s", w.Code, w.Body)
+	}
+	for _, query := range []string{"", "?host=", "?host=host&host=other", "?host=http%3A%2F%2Fhere", "?host=host%0Ainjected", "?host=0.0.0.0"} {
+		if w := managementRequest(t, s, "GET", path+query, nil, false); w.Code != 400 {
+			t.Errorf("%s: %d %s", query, w.Code, w.Body)
+		}
+	}
+	s.options.Config.Playlist.AdvertisedHost = "127.0.0.1"
+	s.options.Config.Playlist.RemoteEnabled = true
+	s.options.Config.Playlist.AllowedClientNetworks = []string{"127.0.0.1"}
+	s = New(s.options)
+	w = httptest.NewRecorder()
+	s.StreamHandler().ServeHTTP(w, req("GET", "/playlist.m3u?host=10.14.0.23"))
+	if w.Code != 400 {
+		t.Fatalf("remote override: %d %s", w.Code, w.Body)
+	}
+}

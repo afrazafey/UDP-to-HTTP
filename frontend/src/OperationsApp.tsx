@@ -85,6 +85,7 @@ export function OperationsApp({ status }: { status: Status }) {
   const action = useAction();
   const data = poll.data;
   const path = route.split("?")[0];
+  const routeParams = new URLSearchParams(route.split("?")[1]);
   const selected =
     navigation.find((n) => path === n.path || path.startsWith(`${n.path}/`)) ??
     navigation[0];
@@ -161,7 +162,7 @@ export function OperationsApp({ status }: { status: Status }) {
               key={route}
               data={data}
               refresh={poll.refresh}
-              mode={route.endsWith("?mode=export") ? "export" : "import"}
+              mode={routeParams.get("mode") === "export" ? "export" : "import"}
             />
           );
           break;

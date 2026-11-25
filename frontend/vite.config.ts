@@ -18,6 +18,11 @@ const cleanAssets: Plugin = {
         await rm(`${output}/${entry}`, { recursive: true, force: true });
   },
 };
+const backendPort = Number(process.env.UDPHTTP_DEV_BACKEND_PORT ?? 8080);
+if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535)
+  throw new Error("UDPHTTP_DEV_BACKEND_PORT must be a valid TCP port");
+const backend = `http://127.0.0.1:${backendPort}`;
+
 export default defineConfig({
   plugins: [cleanAssets, react(), tailwind()],
   server: {
@@ -26,7 +31,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8080",
+        target: backend,
         changeOrigin: true,
         configure(proxy) {
           proxy.on("proxyReq", (request) => {
@@ -36,7 +41,7 @@ export default defineConfig({
           });
         },
       },
-      "/health": { target: "http://127.0.0.1:8080", changeOrigin: true },
+      "/health": { target: backend, changeOrigin: true },
     },
   },
   build: { outDir: "../internal/web/dist", emptyOutDir: false },

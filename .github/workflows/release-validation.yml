@@ -98,6 +98,12 @@ jobs:
           name: release-candidate
           path: build/candidate
       - run: python scripts/verify-artifacts.py --directory build/candidate
+      - name: Restore Linux candidate execute permission
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: chmod u+x "build/candidate/udphttp-proxy-linux-$ARCH"
       - run: npm ci && npm run typecheck && npm test && npm run build
         shell: bash
         working-directory: frontend

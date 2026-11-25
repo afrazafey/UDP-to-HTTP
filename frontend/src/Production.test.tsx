@@ -127,7 +127,7 @@ it("exports the selected group and playback port as a named M3U download", async
       <PlaylistsPage data={data} refresh={vi.fn()} />
     </ToastProvider>,
   );
-  await screen.findByText("playback.example");
+  await screen.findByDisplayValue("playback.example");
   fireEvent.change(screen.getByLabelText("Export group"), {
     target: { value: "MUSIC" },
   });
@@ -141,6 +141,39 @@ it("exports the selected group and playback port as a named M3U download", async
       ([path]) => path === "/api/v1/playlist.m3u?port=primary&group=MUSIC",
     ),
   ).toBe(true);
+});
+it("downloads a playlist with a one-time host when the server has no saved host", async () => {
+  const { data, fetch } = mockRequests();
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify({
+    playlist: { advertised_host: "", remote_enabled: false }, primary_port: 7781, secondary_port: 0,
+  }), { headers: { "Content-Type": "application/json" } }));
+  const download = vi.fn();
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(download);
+  class DownloadURL extends URL {
+    static createObjectURL = vi.fn(() => "blob:test-playlist");
+    static revokeObjectURL = vi.fn();
+  }
+  vi.stubGlobal("URL", DownloadURL);
+  render(<ToastProvider><PlaylistsPage mode="export" data={data} refresh={vi.fn()} /></ToastProvider>);
+  const host = await screen.findByRole("textbox", { name: "Playback host" });
+  expect(screen.getByRole("button", { name: "Download M3U" })).toBeDisabled();
+  fireEvent.change(host, { target: { value: "http://10.14.0.23" } });
+  expect(host).toHaveAttribute("aria-invalid", "true");
+  fireEvent.change(host, { target: { value: "10.14.0.23" } });
+  fireEvent.click(screen.getByRole("button", { name: "Download M3U" }));
+  await waitFor(() => expect(download).toHaveBeenCalledOnce());
+  expect(fetch.mock.calls.map(([path]) => path)).toContain("/api/v1/playlist.m3u?port=preferred&host=10.14.0.23");
+});
+
+it("explains a legacy backend and lets configuration be retried", async () => {
+  const { data, fetch } = mockRequests();
+  fetch.mockImplementationOnce(async () => new Response('{"error":"API endpoint not found"}', {
+    status: 404, headers: { "Content-Type": "application/json" },
+  }));
+  render(<ToastProvider><PlaylistsPage mode="export" data={data} refresh={vi.fn()} /></ToastProvider>);
+  expect(await screen.findByText(/running daemon does not support playlist export/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Retry configuration" }));
+  expect(await screen.findByDisplayValue("playback.example")).toBeVisible();
 });
 it("retains import preview and selected draft when server policy changes", async () => {
   const { data } = mockRequests(true);

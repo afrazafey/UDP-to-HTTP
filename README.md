@@ -145,13 +145,13 @@ python scripts/build-release.py --version 0.4.3-rc.1
 & .\build\udphttp-proxy-windows-amd64.exe serve --config .\configs\config.example.yaml
 ```
 
-Race tests need GCC/CGO. If Application Control blocks a generated executable, record the blocked test and use an approved CI host; do not disable policy. For Vite development, run the Go daemon separately and `cd frontend; npm.cmd run dev`; browse port 5173. Vite does not start the backend.
+Race tests need GCC/CGO. If Application Control blocks a generated executable, record the blocked test and use an approved CI host; do not disable policy. For Vite development, start the current Go daemon separately and run `cd frontend; npm.cmd run dev`. Browse port 5173. Vite proxies to `127.0.0.1:8080` by default. To use a different loopback management port, set `UDPHTTP_DEV_BACKEND_PORT` before starting Vite. A daemon that returns 404 for `/api/v1/playlist/config` needs to be upgraded for export.
 
 ## 10. Network configuration
 
 One user-verified deployment uses UDP `ens18 / 10.14.0.37` on `10.14.0.0/24` and HTTP `ens19 / 192.168.10.103` on `192.168.10.0/24`. TRACE URBAN is multicast group `239.1.1.61`, UDP port `1234`; playback is `http://192.168.10.103:7781/live/trace-urban.ts`, secondary listener 7782. These addresses are examples from one deployment and must be replaced elsewhere.
 
-Select explicit local interfaces, authorize each multicast group/unicast sender and client subnet, and review multicast routing, IGMP snooping/querier and firewall policy. The application does not change host networking. [Network guide](docs/NETWORK_CONFIGURATION.md) includes the complete example and Linux/Windows commands. Advertising a playback hostname is independent of binding a socket; configure `playlist.advertised_host` before exporting URLs.
+Select explicit local interfaces, authorize each multicast group/unicast sender and client subnet, and review multicast routing, IGMP snooping/querier and firewall policy. The application does not change host networking. [Network guide](docs/NETWORK_CONFIGURATION.md) includes the complete example and Linux/Windows commands. Enter a player-reachable host for a single export, or configure `playlist.advertised_host` to reuse a default.
 
 ## 11. Adding and managing IPTV channels
 

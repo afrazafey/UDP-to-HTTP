@@ -83,7 +83,7 @@ export function analyzeNetworkList(values: string[], kind: ListKind, loopback = 
 }
 
 export function NetworkList({
-  label, help, example, kind, value, onChange, loopback = false,
+  label, help, example, kind, value, onChange, loopback = false, formatHintId,
 }: {
   label: string;
   help: string;
@@ -92,24 +92,33 @@ export function NetworkList({
   value: string[];
   onChange: (values: string[]) => void;
   loopback?: boolean;
+  formatHintId?: string;
 }) {
   const id = useId();
   const { entries, invalid, duplicates, constraint } = analyzeNetworkList(value, kind, loopback);
   const hasError = invalid.length > 0 || Boolean(constraint);
   return (
     <div className="op-field op-network-list">
-      <label htmlFor={id}>{label}</label>
-      <span id={`${id}-help`}>{help} Separate entries with commas or line breaks.</span>
+      <div className="op-network-list-label">
+        <label htmlFor={id}>{label}</label>
+        <span id={`${id}-count`} className="op-network-list-count" aria-live="polite">
+          {entries.size} {entries.size === 1 ? "entry" : "entries"}
+        </span>
+      </div>
+      <span id={`${id}-help`}>{help}{!formatHintId && " Separate entries with commas or line breaks."}</span>
       <textarea id={id} rows={3} spellCheck={false} autoCapitalize="off" autoComplete="off"
         placeholder={example} value={value.join("\n")}
-        aria-invalid={hasError} aria-describedby={`${id}-help ${id}-status`}
+        aria-invalid={hasError} aria-describedby={[`${id}-help`, formatHintId, `${id}-count`, `${id}-status`].filter(Boolean).join(" ")}
         onChange={(event) => onChange(event.target.value.split("\n"))}
         onBlur={() => {
-          if (!hasError && duplicates === 0) onChange([...entries.values()]);
+          const normalized = [...entries.values()];
+          if (!hasError && duplicates === 0 &&
+            (normalized.length !== value.length || normalized.some((entry, index) => entry !== value[index]))) {
+            onChange(normalized);
+          }
         }}
       />
       <div id={`${id}-status`} className="op-network-list-status" aria-live="polite">
-        <span>{entries.size} {entries.size === 1 ? "entry" : "entries"}</span>
         {duplicates > 0 && <span>{duplicates} {duplicates === 1 ? "duplicate" : "duplicates"} will be merged on save</span>}
         {hasError && <span className="op-network-list-error">{constraint || `Invalid for this field: ${invalid.join(", ")}`}</span>}
       </div>

@@ -1,7 +1,6 @@
 import { useId, useState } from "react";
-import { FileText, Globe, ListMusic, Radio, Settings2, ShieldCheck } from "lucide-react";
-import { allMulticast, analyzeNetworkList, NetworkList, splitNetworkList, type ListKind } from "../components/network/NetworkList";
-import { PolicyTest } from "../components/network/PolicyTest";
+import { Check, FileText, Globe, ListMusic, Radio, Settings2, ShieldCheck } from "lucide-react";
+import { SecuritySettings } from "../components/network/SecuritySettings";
 import type { OperationsData } from "../types/operations";
 import { Button, CopyButton, Definition, Field, Panel } from "../components/ui";
 import {
@@ -9,12 +8,12 @@ import {
   useSettingsEditor,
 } from "../components/network/SettingsEditor";
 const sections = [
-  { name: "General", icon: Settings2 },
-  { name: "Streaming", icon: Radio },
-  { name: "HTTP", icon: Globe },
-  { name: "Security", icon: ShieldCheck },
-  { name: "Logging", icon: FileText },
-  { name: "Recovery & playlists", icon: ListMusic },
+  { name: "General", icon: Settings2, description: "Dashboard appearance, refresh interval, and defaults for new channels." },
+  { name: "Streaming", icon: Radio, description: "Receiver limits, buffer budgets, and playback timeouts." },
+  { name: "HTTP", icon: Globe, description: "Playback interfaces and ports. Listener changes take effect after a restart." },
+  { name: "Security", icon: ShieldCheck, description: "Choose which clients and sources can stream. Saved access rules take effect immediately." },
+  { name: "Logging", icon: FileText, description: "Control log detail and how long operational events are retained." },
+  { name: "Recovery & playlists", icon: ListMusic, description: "Inspect the active YAML configuration for recovery and remote playlists." },
 ];
 
 export function SettingsPage({
@@ -56,27 +55,13 @@ export function SettingsPage({
       />
     </Field>
   );
-  const list = (
-    label: string,
-    key:
-      | "allowed_client_networks"
-      | "allowed_multicast_groups"
-      | "allowed_unicast_sources"
-      | "blocked_multicast_networks",
-    help: string,
-    example: string,
-    kind: ListKind,
-  ) => (
-    <NetworkList label={label} help={help} example={example} kind={kind}
-      value={d.streaming[key]} loopback={d.streaming.allow_loopback_unicast}
-      onChange={(entries) => updateStream(key, entries)} />
-  );
-  const allowAll = analyzeNetworkList(d.streaming.allowed_multicast_groups, "multicast").entries.has(allMulticast);
   return (
     <>
       {e.status}
       <div className="op-settings-layout">
-        <div className="op-settings-tabs" role="tablist" aria-label="Settings sections">
+        <aside className="op-settings-sidebar">
+          <div className="op-settings-nav-title"><Settings2 size={16} aria-hidden="true" /> Configuration</div>
+          <div className="op-settings-tabs" role="tablist" aria-label="Settings sections">
           {sections.map(({ name, icon: Icon }, index) => (
             <button
               type="button"
@@ -111,11 +96,13 @@ export function SettingsPage({
               <Icon size={17} aria-hidden="true" /> {name}
             </button>
           ))}
-        </div>
+          </div>
+        </aside>
         <div role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-tab-${selected}`} tabIndex={0}>
           <Panel
             title={`${tab} settings`}
-            description={tab === "Recovery & playlists" ? undefined : "Validate and review changes before saving."}
+            description={sections[selected].description}
+            action={e.dirty && <span className="op-settings-draft">Unsaved changes</span>}
           >
             {tab === "Recovery & playlists" ? (
               <Definition
@@ -365,102 +352,12 @@ export function SettingsPage({
                   </>
                 )}
                 {tab === "Security" && (
-                  <>
-                    <div className="op-form-grid">
-                      {list(
-                        "Allowed playback clients",
-                        "allowed_client_networks",
-                        "Empty denies all playback clients. Matches the actual peer IP.",
-                        "10.14.0.5\n192.168.10.0/24",
-                        "client",
-                      )}
-                      {list(
-                        "Allowed multicast groups",
-                        "allowed_multicast_groups",
-                        "IPv4 groups and ranges within 224.0.0.0/4.",
-                        "239.1.1.61\n239.255.20.0/24",
-                        "multicast",
-                      )}
-                      {list(
-                        "Allowed unicast senders",
-                        "allowed_unicast_sources",
-                        "IPv4 sender addresses or networks.",
-                        "10.14.0.1, 10.20.0.0/24",
-                        "unicast",
-                      )}
-                      {list(
-                        "Blocked multicast networks",
-                        "blocked_multicast_networks",
-                        "Blocked ranges override allowed ranges. The local-control range is always blocked.",
-                        "224.0.0.0/24",
-                        "blocked",
-                      )}
-                      <Field label="Explicit loopback unicast permission">
-                        <select
-                          value={String(d.streaming.allow_loopback_unicast)}
-                          onChange={(event) =>
-                            updateStream(
-                              "allow_loopback_unicast",
-                              event.target.value === "true",
-                            )
-                          }
-                        >
-                          <option value="false">Denied</option>
-                          <option value="true">
-                            Allowed for matching senders
-                          </option>
-                        </select>
-                      </Field>
-                    </div>
-                    <label className={allowAll ? "op-policy-warning" : "op-policy-checkbox"}>
-                      <input type="checkbox" checked={allowAll} onChange={(event) => {
-                        const entries = splitNetworkList(d.streaming.allowed_multicast_groups)
-                          .filter((entry) => !analyzeNetworkList([entry], "multicast").entries.has(allMulticast));
-                        updateStream("allowed_multicast_groups", event.target.checked ? [...entries, allMulticast] : entries);
-                      }} />
-                      <span>
-                        <strong>Allow all IPv4 multicast groups</strong>
-                        <small>{allowAll
-                          ? "Any group outside reserved and blocked ranges can be selected."
-                          : "Uses 224.0.0.0/4. Blocked ranges still take precedence."}</small>
-                      </span>
-                    </label>
-                    <PolicyTest key={e.revision} draft={d} />
-                    <Definition
-                      items={[
-                        [
-                          "Management policy • read-only",
-                          String(data.settings.read_only.authentication),
-                        ],
-                        [
-                          "Session status • read-only",
-                          "Browser sessions are not managed by the daemon",
-                        ],
-                        [
-                          "Management bind • read-only",
-                          String(data.settings.read_only.management_binding),
-                        ],
-                        [
-                          "Trusted reverse proxies • read-only",
-                          Array.isArray(data.settings.read_only.trusted_proxies) &&
-                            data.settings.read_only.trusted_proxies.length
-                            ? data.settings.read_only.trusted_proxies.join(", ")
-                            : "None; forwarded headers ignored",
-                        ],
-                        [
-                          "Trusted management origins • read-only",
-                          Array.isArray(data.settings.read_only.trusted_origins) &&
-                            data.settings.read_only.trusted_origins.length
-                            ? data.settings.read_only.trusted_origins.join(", ")
-                            : "None",
-                        ],
-                        [
-                          "Playback authorization • read-only",
-                          String(data.settings.read_only.playback_authorization),
-                        ],
-                      ]}
-                    />
-                  </>
+                  <SecuritySettings
+                    key={e.revision}
+                    draft={d}
+                    readOnly={data.settings.read_only}
+                    onChange={(streaming) => e.setDraft({ ...d, streaming })}
+                  />
                 )}
                 {tab === "Logging" && (
                   <>
@@ -530,19 +427,31 @@ export function SettingsPage({
                   </>
                 )}
                 <div className="op-form-actions">
-                  <CopyButton
-                    label="Copy recovery command"
-                    value="UDPHTTP_IGNORE_SAVED_SETTINGS=1 udphttp-proxy serve --config /etc/udphttp-proxy/config.yaml"
-                  />
-                  {e.dirty && <Button type="button" disabled={e.busy} onClick={e.reset}>Reset draft</Button>}
-                  <Button
+                  <span className="op-settings-revision" aria-live="polite">
+                    <Check size={15} aria-hidden="true" />
+                    Saved revision {e.revision}
+                  </span>
+                  <div className="op-settings-actions">
+                    {e.dirty && <Button type="button" disabled={e.busy} onClick={e.reset}>Reset draft</Button>}
+                    <Button
                     type="submit"
                     className="primary"
                     disabled={e.busy || e.revision < data.settings.revision}
                   >
                     {e.busy ? "Validating…" : "Validate & review changes"}
-                  </Button>
+                    </Button>
+                  </div>
                 </div>
+                {tab === "General" && (
+                  <details className="op-settings-recovery">
+                    <summary>Startup recovery</summary>
+                    <p>Start with the server YAML when saved settings prevent normal startup.</p>
+                    <CopyButton
+                      label="Copy recovery command"
+                      value="UDPHTTP_IGNORE_SAVED_SETTINGS=1 udphttp-proxy serve --config /etc/udphttp-proxy/config.yaml"
+                    />
+                  </details>
+                )}
               </form>
             )}
           </Panel>

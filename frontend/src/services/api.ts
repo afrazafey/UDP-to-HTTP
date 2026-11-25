@@ -6,6 +6,16 @@ export class APIError extends Error {
     super(message);
   }
 }
+
+async function requestError(response: Response) {
+  let message = `Request failed (${response.status})`;
+  try {
+    const body = await response.json();
+    if (typeof body?.error === "string") message = body.error;
+  } catch {}
+  return new APIError(message, response.status);
+}
+
 export async function api<T>(
   path: string,
   options: RequestInit = {},
@@ -16,14 +26,7 @@ export async function api<T>(
     signal: signal ?? options.signal,
     headers: { Accept: "application/json", ...options.headers },
   });
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      message = body.error ?? message;
-    } catch {}
-    throw new APIError(message, response.status);
-  }
+  if (!response.ok) throw await requestError(response);
   if (response.status === 204) return undefined as T;
   if (!response.headers.get("Content-Type")?.includes("application/json"))
     throw new APIError("The service did not return JSON", response.status);
@@ -46,10 +49,16 @@ export async function mutate<T>(
     signal,
   );
 }
-export async function download(path: string, filename = "udphttp-diagnostics.ndjson") {
+export async function download(
+  path: string,
+  filename = "udphttp-diagnostics.ndjson",
+  mediaType?: RegExp,
+) {
   const response = await fetch(path, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok)
-    throw new APIError("Diagnostic export failed", response.status);
+  if (!response.ok) throw await requestError(response);
+  const type = response.headers.get("Content-Type")?.split(";")[0].trim() ?? "";
+  if (mediaType && !mediaType.test(type))
+    throw new APIError("The daemon did not return a playlist file.", response.status);
   const url = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
   anchor.href = url;

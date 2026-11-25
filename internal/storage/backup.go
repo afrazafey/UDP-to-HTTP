@@ -11,8 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 )
 
 type BackupInfo struct {
@@ -36,27 +34,23 @@ func reserveBackup(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 }
 
-// Check the first existing ancestor before MkdirAll creates a new child.
-// Backup and restore directories must also be owned by trusted operators.
+// Check each existing ancestor before MkdirAll creates a new child. Windows
+// short names refer to ordinary directories and must not be confused with links.
 func requireBackupDirectory(directory string) error {
 	directory, err := filepath.Abs(directory)
 	if err != nil {
 		return err
 	}
 	for {
-		resolved, err := filepath.EvalSymlinks(directory)
-		if err == nil {
-			if directory != resolved && !(runtime.GOOS == "windows" && strings.EqualFold(directory, resolved)) {
-				return errors.New("backup and restore paths must use directories without symbolic links")
-			}
-			return nil
+		info, err := os.Lstat(directory)
+		if err == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+			return errors.New("backup and restore paths must use directories without symbolic links")
 		}
-		parent := filepath.Dir(directory)
-		if !os.IsNotExist(err) || parent == directory {
+		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		// A dangling symlink is not a missing directory.
-		if _, statErr := os.Lstat(directory); !os.IsNotExist(statErr) {
+		parent := filepath.Dir(directory)
+		if parent == directory {
 			return err
 		}
 		directory = parent

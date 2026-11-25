@@ -2245,7 +2245,7 @@
   grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
 }
 .op-settings-layout {
-  grid-template-columns: minmax(155px, 200px) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
 }
 .op-monitoring-throughput .op-chart {
   padding: 14px var(--workspace-pad);
@@ -2256,14 +2256,26 @@
 .op-monitoring-throughput .op-chart-header {
   margin-bottom: 16px;
 }
+.op-settings-sidebar {
+  min-width: 0;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.op-settings-nav-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 12px;
+  color: var(--muted);
+  font-size: .8125rem;
+  font-weight: 650;
+}
 .op-settings-tabs {
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: 7px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
 }
 .op-settings-tabs button {
   display: flex;
@@ -2308,25 +2320,6 @@
 .op-workspace .op-callout {
   margin-inline: var(--workspace-pad);
   margin-bottom: 14px;
-}
-.op-playlist-host {
-  display: grid;
-  gap: 4px;
-  margin: 14px var(--workspace-pad) 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--panel-soft);
-  font-size: 0.8125rem;
-  color: var(--muted);
-}
-.op-playlist-host strong {
-  color: var(--text);
-  font-size: 0.875rem;
-}
-.op-workspace .op-playlist-options .op-toolbar {
-  display: grid;
-  align-items: start;
 }
 .op-import-layout {
   display: grid;
@@ -2662,6 +2655,21 @@
   resize: vertical;
   font-family: ui-monospace, monospace;
 }
+.op-network-list-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .3rem .7rem;
+}
+.op-network-list-count {
+  padding: .15rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: .75rem;
+  white-space: nowrap;
+}
 .op-network-list-status,
 .op-network-chips {
   display: flex;
@@ -2705,7 +2713,6 @@
 .op-network-chips button:hover {
   background: var(--line);
 }
-.op-policy-checkbox,
 .op-policy-warning {
   display: flex;
   align-items: flex-start;
@@ -2719,25 +2726,289 @@
   border-color: var(--overview-warning);
   background: color-mix(in srgb, var(--overview-warning, #ad7100) 10%, transparent);
 }
-.op-policy-checkbox input,
 .op-policy-warning input {
   width: 1rem;
   height: 1rem;
   flex: none;
   accent-color: var(--accent);
 }
-.op-policy-checkbox small,
-.op-policy-warning small {
-  display: block;
-  margin-top: .15rem;
+.op-settings-draft,
+.op-settings-revision {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8125rem;
+}
+.op-settings-draft {
+  border-radius: 999px;
+  padding: .3rem .62rem;
+  color: var(--accent);
+  background: var(--blue-bg);
+  white-space: nowrap;
+}
+.op-settings-layout .op-form-actions {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.op-settings-revision {
   color: var(--muted);
 }
-.op-policy-test {
-  display: grid;
-  justify-items: start;
-  gap: .6rem;
-  margin: 1.25rem 0;
+.op-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.op-policy-test .op-form-grid {
+.op-settings-recovery {
+  padding: 12px var(--workspace-pad);
+  color: var(--muted);
+  font-size: .8125rem;
+}
+.op-settings-recovery summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.op-settings-recovery p {
+  margin: 8px 0;
+}
+
+.op-security-form {
+  container-type: inline-size;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px var(--workspace-pad);
+}
+.op-security-format {
+  margin: 0;
+  color: var(--muted);
+  font-size: .8125rem;
+}
+.op-security-rules,
+.op-security-multicast-fields,
+.op-policy-test-fields {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.op-security-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: clamp(12px, 2cqi, 20px);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.op-security-card-head {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+.op-security-card-head h3 {
+  margin: 0;
+  font-size: .95rem;
+}
+.op-security-card-head svg {
+  flex: none;
+  color: var(--accent);
+}
+.op-security-multicast {
+  grid-column: 1 / -1;
+}
+.op-security-form .op-network-list textarea {
+  min-height: 4.7rem;
+}
+.op-security-form .op-field {
+  min-width: 0;
+}
+.op-security-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.op-security-toggle input {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: .15rem;
+  accent-color: var(--accent);
+}
+.op-security-toggle strong,
+.op-security-toggle small {
+  display: block;
+}
+.op-security-toggle small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+.op-security-toggle.is-warning {
+  border-color: var(--overview-warning, #ad7100);
+  background: color-mix(in srgb, var(--overview-warning, #ad7100) 10%, var(--panel));
+}
+.op-policy-test-fields {
+  align-items: end;
+}
+.op-policy-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  background: var(--panel);
+}
+.op-policy-result svg {
+  flex: none;
+}
+.op-policy-result.is-allowed svg {
+  color: var(--success, #16865b);
+}
+.op-policy-result.is-blocked svg {
+  color: var(--danger, #c03545);
+}
+.op-policy-result span {
+  margin-inline-start: .5rem;
+  color: var(--muted);
+}
+.op-policy-result p {
+  margin: 4px 0 0;
+}
+.op-security-details {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.op-security-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.op-security-details summary::marker {
+  content: "";
+}
+.op-security-details summary small {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+.op-security-details[open] summary svg:last-child {
+  transform: rotate(180deg);
+}
+@container (min-width: 32rem) {
+  .op-policy-test-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 43rem) {
+  .op-security-rules,
+  .op-security-multicast-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 52rem) {
+  .op-policy-test-fields {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  }
+}
+
+.op-playlist-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 14px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.op-playlist-modes a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 13px;
+  min-height: 40px;
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: .875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.op-playlist-modes a:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.op-playlist-modes a[aria-current="page"] {
+  color: var(--accent);
+  background: var(--blue-bg);
+}
+.op-export-builder,
+.op-export-link,
+.op-export-preview {
+  display: grid;
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+.op-export-builder,
+.op-export-link {
+  padding: 14px var(--workspace-pad);
+}
+.op-export-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(175px, 100%), 1fr));
+  gap: 12px;
+}
+.op-export-builder .op-button[type="submit"] {
   width: 100%;
+}
+.op-export-link {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.op-export-link input {
+  font-family: ui-monospace, monospace;
+}
+@media (max-width: 850px) {
+  .op-settings-layout,
+  .op-playlist-layout,
+  .op-export-link {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .op-settings-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .op-settings-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .op-settings-actions {
+    width: 100%;
+  }
+  .op-settings-actions .primary,
+  .op-playlist-modes a {
+    flex: 1 1 auto;
+  }
+  .op-playlist-modes {
+    width: 100%;
+  }
+  .op-playlist-modes a {
+    padding-inline: 6px;
+  }
 }
